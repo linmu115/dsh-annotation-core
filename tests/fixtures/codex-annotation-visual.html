@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>Annotation visual comparison fixture</title>
+<style>
+  :root { color-scheme: light; font: 14px/1.5 system-ui, sans-serif; }
+  body { margin: 40px; color: #202124; background: #fff; }
+  .stage { width: min(760px, 100%); display: grid; gap: 28px; }
+  .rail { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip, .sent { border: 1px solid #dedede; border-radius: 999px; background: #fff; padding: 7px 12px; }
+  .chip:focus-visible, .sent:focus-visible { outline: 2px solid #6b8afd; outline-offset: 2px; }
+  .sent { justify-self: end; }
+  .dialog { border: 1px solid #ddd; border-radius: 16px; padding: 18px; box-shadow: 0 12px 40px #0002; }
+  @media (max-width: 420px) { .rail { flex-direction: column; } .chip { text-align: left; } }
+</style>
+<body>
+  <main class="stage">
+    <div class="rail" aria-label="发送前注释"><button class="chip">1 · DSH · 选段预览</button><button class="chip">2 · Obsidian · 笔记预览</button></div>
+    <button class="sent">▢ 2 条注释</button>
+    <section class="dialog"><strong>注释 1</strong><p>完整选段、来源和用户注解。</p></section>
+  </main>
+</body>
+</html>
