@@ -67,3 +67,15 @@ export function annotationRemote(ctx: Context): AnnotationCoreRemoteNamespace {
   if (service === undefined) throw new Error('dsh-annotation-core: Remote descriptor is not mounted')
   return service
 }
+
+interface SessionScopeService {
+  scope(sessionId: string): Context | undefined
+}
+
+/** Resolve a Remote namespace from the explicitly requested Agent scope. */
+export function annotationRemoteForSession(ctx: Context, sessionId: string): AnnotationCoreRemoteNamespace {
+  const sessions = ctx.get('sessions') as SessionScopeService | undefined
+  const scoped = sessions?.scope(sessionId)
+  if (scoped === undefined) throw new Error(`dsh-annotation-core: session scope unavailable for ${JSON.stringify(sessionId)}`)
+  return annotationRemote(scoped)
+}

@@ -7,7 +7,7 @@ import type { ReferenceItem, ReferenceSet } from '../domain/model.ts'
 import { selectedTextHash } from '../protocol/serialization.ts'
 import type { DshMessageCapture, DshMessageReferenceSource, ReferenceSource, SourceType } from '../protocol/index.ts'
 import type { AnnotationCoreClient, AnnotationCoreFeature, ClientSourceAdapter, PlainComposerPort } from '../public/client-api.ts'
-import { annotationRemote, unwrapRemote } from '../remote/client.ts'
+import { annotationRemoteForSession, unwrapRemote } from '../remote/client.ts'
 import type { AnnotationCoreRemoteNamespace } from '../remote/client.ts'
 import { parseAnnotationAnswerLink, resolveAnnotationAnswerLink } from './answer-link.ts'
 import { createComposerBinding } from './composer-binding.tsx'
@@ -67,10 +67,10 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     if (config.profileId.trim().length === 0) throw new TypeError('profileId must not be empty')
   }
 
-  private remote(): AnnotationCoreRemoteNamespace { return annotationRemote(this.ctx) }
+  private remote(sessionId: string): AnnotationCoreRemoteNamespace { return annotationRemoteForSession(this.ctx, sessionId) }
 
-  async readPendingState(_sessionId: string): Promise<{ revision: number; pendingCount: number }> {
-    const state = unwrapRemote(await this.remote().readPending())
+  async readPendingState(sessionId: string): Promise<{ revision: number; pendingCount: number }> {
+    const state = unwrapRemote(await this.remote(sessionId).readPending())
     return { revision: state.revision, pendingCount: state.pending?.items.length ?? 0 }
   }
 
@@ -87,8 +87,8 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     }
   }
 
-  async addReference(_sessionId: string, source: ReferenceSource, options: { operationId?: string; signal?: AbortSignal } = {}) {
-    const remote = this.remote(); const pending = unwrapRemote(await remote.readPending()); const operationId = options.operationId ?? id('operation')
+  async addReference(sessionId: string, source: ReferenceSource, options: { operationId?: string; signal?: AbortSignal } = {}) {
+    const remote = this.remote(sessionId); const pending = unwrapRemote(await remote.readPending()); const operationId = options.operationId ?? id('operation')
     if (options.signal?.aborted) {
       unwrapRemote(await remote.fenceReferenceOperation({ expectedRevision: pending.revision, operationId }))
       throw new DOMException('The operation was aborted', 'AbortError')
@@ -100,28 +100,28 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     return { setId: result.setId, referenceId: result.referenceId, created: result.created }
   }
 
-  async fenceReferenceOperation(_sessionId: string, operationId: string) {
-    const remote = this.remote(); const state = unwrapRemote(await remote.readPending())
+  async fenceReferenceOperation(sessionId: string, operationId: string) {
+    const remote = this.remote(sessionId); const state = unwrapRemote(await remote.readPending())
     return unwrapRemote(await remote.fenceReferenceOperation({ expectedRevision: state.revision, operationId }))
   }
 
-  async discardPendingOperation(_sessionId: string, operationId: string): Promise<void> {
-    const remote = this.remote(); const state = unwrapRemote(await remote.readPending())
+  async discardPendingOperation(sessionId: string, operationId: string): Promise<void> {
+    const remote = this.remote(sessionId); const state = unwrapRemote(await remote.readPending())
     unwrapRemote(await remote.discardPendingOperation({ expectedRevision: state.revision, operationId }))
   }
 
-  async updateComment(_sessionId: string, referenceId: string, comment: string): Promise<void> {
-    const remote = this.remote(); const state = unwrapRemote(await remote.readPending())
+  async updateComment(sessionId: string, referenceId: string, comment: string): Promise<void> {
+    const remote = this.remote(sessionId); const state = unwrapRemote(await remote.readPending())
     unwrapRemote(await remote.updateComment({ expectedRevision: state.revision, referenceId, comment }))
   }
 
-  async removeReference(_sessionId: string, referenceId: string): Promise<void> {
-    const remote = this.remote(); const state = unwrapRemote(await remote.readPending())
+  async removeReference(sessionId: string, referenceId: string): Promise<void> {
+    const remote = this.remote(sessionId); const state = unwrapRemote(await remote.readPending())
     unwrapRemote(await remote.removeReference({ expectedRevision: state.revision, referenceId }))
   }
 
-  async reuseReference(referenceId: string, _targetSessionId: string): Promise<{ setId: string; referenceId: string }> {
-    const remote = this.remote(); const state = unwrapRemote(await remote.readPending())
+  async reuseReference(referenceId: string, targetSessionId: string): Promise<{ setId: string; referenceId: string }> {
+    const remote = this.remote(targetSessionId); const state = unwrapRemote(await remote.readPending())
     const result = unwrapRemote(await remote.reuseReference({
       expectedRevision: state.revision, sourceReferenceId: referenceId, operationId: id('operation'),
       setId: state.pending?.setId ?? id('set'), referenceId: id('reference'), createdAt: Date.now(),
@@ -130,12 +130,14 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
   }
 
   async retryBacklink(setId: string, referenceId: string): Promise<void> {
-    const remote = this.remote(); const state = unwrapRemote(await remote.readPending())
+    const sessionId = [...this.sent.entries()].find(([, sets]) => sets.has(setId))?.[0]
+    if (sessionId === undefined) throw new Error(`dsh-annotation-core: sent set ${JSON.stringify(setId)} has no known session`)
+    const remote = this.remote(sessionId); const state = unwrapRemote(await remote.readPending())
     unwrapRemote(await remote.retryBacklink({ expectedRevision: state.revision, setId, referenceId }))
   }
 
   bindComposer(input: { sessionId: string; layout: 'default' | 'narrow'; plainPort?: PlainComposerPort }): ComposerBinding {
-    const remote = this.remote()
+    const remote = this.remote(input.sessionId)
     let binding: ComposerBinding
     binding = createComposerBinding({
       ...input, remote,
@@ -187,7 +189,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     if (node === undefined) return undefined
     const summaries = this.sentSummaries.get(input.sessionId) ?? new Map<string, number>()
     summaries.set(node.data.setId, node.data.count); this.sentSummaries.set(input.sessionId, summaries)
-    const remote = this.remote()
+    const remote = this.remote(input.sessionId)
     void this.prefetchSent(input.sessionId, node.data.setId, remote).catch(() => undefined)
     return {
       key: node.key,
@@ -210,7 +212,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     if (exact !== undefined) { this.dialog.open(exact.set, exact.referenceId); return true }
     const count = this.sentSummaries.get(sessionId)?.get(target.setId)
     if (count === undefined || target.number > count) return false
-    const remote = this.remote(); void this.openSent(sessionId, target.setId, remote, target.number).catch(() => undefined)
+    const remote = this.remote(sessionId); void this.openSent(sessionId, target.setId, remote, target.number).catch(() => undefined)
     return true
   }
 
