@@ -1,0 +1,21 @@
+Command:
+pnpm vitest run tests/rc2-dynamic-integration.test.tsx
+
+Observed red state:
+
+ RUN  v4.1.11 C:/Users/19717/OneDrive/文档/ChatGPT/dsh/dsh-annotation-core-staging
+
+ FAIL  tests/rc2-dynamic-integration.test.tsx
+Error: Cannot find module '../scripts/probe-rc2-dynamic.mts' imported from
+C:/Users/19717/OneDrive/文档/ChatGPT/dsh/dsh-annotation-core-staging/tests/rc2-dynamic-integration.test.tsx
+
+Source location:
+tests/rc2-dynamic-integration.test.tsx:2:1
+
+Test Files  1 failed (1)
+Tests       no tests
+Exit code   1
+
+This failure is intentional: the dynamic integration contract was committed
+before its implementation so the later green state cannot be supplied by the
+older source-string probe.
