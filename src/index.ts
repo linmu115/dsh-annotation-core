@@ -6,6 +6,8 @@ import { openAnnotationStore } from './host/store.ts'
 import { AnnotationCoreRemoteService } from './remote/service.ts'
 
 export * from './public/host-api.ts'
+export { SourcePreparationError } from './host/source-registry.ts'
+export type { SourcePreparationErrorCode } from './host/source-registry.ts'
 
 export const name = 'dsh-annotation-core'
 

@@ -9,6 +9,20 @@ import type {
   SentReferenceBinding,
 } from '../public/host-api.ts'
 
+export type SourcePreparationErrorCode =
+  | 'offline'
+  | 'online-refresh-failed'
+  | 'source-missing'
+  | 'source-changed'
+  | 'protocol-mismatch'
+
+export class SourcePreparationError extends Error {
+  constructor(readonly code: SourcePreparationErrorCode, message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'SourcePreparationError'
+  }
+}
+
 export class HostSourceRegistry extends Service implements AnnotationCoreHost {
   private readonly adapters = new Map<SourceType, HostSourceAdapter>()
 
@@ -31,6 +45,10 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
     const adapter = this.adapters.get(type)
     if (adapter === undefined) throw new Error(`No annotation source adapter is registered for ${JSON.stringify(type)}`)
     return adapter
+  }
+
+  get(type: SourceType): HostSourceAdapter | undefined {
+    return this.adapters.get(type)
   }
 
   async prepare(item: ReferenceItem, signal: AbortSignal): Promise<ReferenceItem> {
