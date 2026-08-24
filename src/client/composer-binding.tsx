@@ -140,6 +140,7 @@ function randomId(prefix: string): string {
 
 export class ComposerBinding implements EmbeddedComposerHandle {
   private visibleDraft: string
+  private snapshot: EmbeddedComposerSnapshot
   private localRevision = 0
   private commitState: EmbeddedComposerSnapshot['commitState'] = 'idle'
   private error: string | undefined
@@ -156,6 +157,7 @@ export class ComposerBinding implements EmbeddedComposerHandle {
     this.store = options.store ?? new ReferenceSessionStore(options.remote)
     this.ownStore = options.store === undefined
     this.visibleDraft = options.plainPort?.getSnapshot().draft ?? ''
+    this.snapshot = Object.freeze(this.buildSnapshot())
     this.unsubscribeStore = this.store.subscribe(() => this.emit())
     this.unsubscribePlain = options.plainPort?.subscribe(() => {
       this.visibleDraft = options.plainPort?.getSnapshot().draft ?? this.visibleDraft
@@ -163,7 +165,7 @@ export class ComposerBinding implements EmbeddedComposerHandle {
     })
   }
 
-  getSnapshot = (): EmbeddedComposerSnapshot => {
+  private buildSnapshot(): EmbeddedComposerSnapshot {
     const state = this.store.getSnapshot()
     const pendingCount = state.pending?.items.length ?? 0
     const blocked = state.status !== 'ready'
@@ -183,12 +185,28 @@ export class ComposerBinding implements EmbeddedComposerHandle {
     }
   }
 
+  getSnapshot = (): EmbeddedComposerSnapshot => this.snapshot
+
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }
 
-  private emit(): void { for (const listener of this.listeners) listener() }
+  private emit(): void {
+    const next = this.buildSnapshot()
+    const previous = this.snapshot
+    if (
+      previous.visibleDraft === next.visibleDraft &&
+      previous.pendingCount === next.pendingCount &&
+      previous.canSubmit === next.canSubmit &&
+      previous.commitState === next.commitState &&
+      previous.error === next.error &&
+      previous.transport === next.transport &&
+      previous.fallbackPolicy === next.fallbackPolicy
+    ) return
+    this.snapshot = Object.freeze(next)
+    for (const listener of this.listeners) listener()
+  }
 
   setVisibleDraft(text: string): void {
     this.visibleDraft = text

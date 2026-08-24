@@ -51,6 +51,25 @@ function remote(initial: ReferenceSet | null = set()) {
 }
 
 describe('shared annotation composer binding', () => {
+  it('keeps useSyncExternalStore snapshots identity-stable until observable state changes', async () => {
+    const fake = remote(null)
+    const store = new ReferenceSessionStore(fake.value)
+    await store.ready()
+    const binding = createComposerBinding({ sessionId: 'session-1', layout: 'default', remote: fake.value, store })
+    const first = binding.getSnapshot()
+    expect(binding.getSnapshot()).toBe(first)
+    const listener = vi.fn()
+    const unsubscribe = binding.subscribe(listener)
+    binding.setVisibleDraft('question')
+    expect(binding.getSnapshot()).not.toBe(first)
+    expect(listener).toHaveBeenCalledTimes(1)
+    binding.setVisibleDraft('question')
+    expect(listener).toHaveBeenCalledTimes(1)
+    unsubscribe()
+    binding.dispose()
+    store.dispose()
+  })
+
   it('renders the same accessible clean rail in default and narrow layouts', async () => {
     const fake = remote()
     const store = new ReferenceSessionStore(fake.value)

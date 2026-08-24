@@ -1,4 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 
 import type { ReferenceItem, ReferenceSet } from '../domain/model.ts'
 import type { ClientSourceRegistry } from './source-registry.ts'
@@ -60,7 +61,7 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, re
   useEffect(() => { if (snapshot.open) closeRef.current?.focus() }, [snapshot.open])
   if (!snapshot.open || snapshot.set === undefined) return null
   const set = snapshot.set
-  return <div className="dshAnnotationDialogBackdrop" role="presentation" onMouseDown={(event) => {
+  const dialog = <div className="dshAnnotationDialogBackdrop" role="presentation" onMouseDown={(event) => {
     if (event.currentTarget === event.target) controller.close()
   }}>
     <section className="dshAnnotationDialog" role="dialog" aria-modal="true" aria-label={`${set.items.length} 条注释`}>
@@ -97,4 +98,5 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, re
       </div>
     </section>
   </div>
+  return createPortal(dialog, document.body)
 }

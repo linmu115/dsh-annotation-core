@@ -10,7 +10,7 @@
 .dshAnnotationBlocked { color:#b42318; font-size:12px; }
 .dshAnnotationSentRow { display:flex; justify-content:flex-end; width:100%; margin:5px 0 13px; }
 .dshAnnotationSentPill { padding:7px 13px; border:1px solid color-mix(in srgb,currentColor 15%,transparent); border-radius:999px; background:var(--color-background,#fff); color:inherit; cursor:pointer; }
-.dshAnnotationDialogBackdrop { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:24px; background:#0005; }
+.dshAnnotationDialogBackdrop { position:fixed; inset:0; z-index:2147482500; display:grid; place-items:center; padding:24px; background:#0005; }
 .dshAnnotationDialog { width:min(620px,100%); max-height:min(760px,90vh); overflow:auto; border:1px solid color-mix(in srgb,currentColor 16%,transparent); border-radius:18px; background:var(--color-background,#fff); color:inherit; box-shadow:0 18px 70px #0004; }
 .dshAnnotationDialogHeader { position:sticky; top:0; display:flex; justify-content:space-between; align-items:center; padding:15px 18px; background:inherit; border-bottom:1px solid color-mix(in srgb,currentColor 12%,transparent); }
 .dshAnnotationDialogBody { display:grid; gap:12px; padding:16px 18px 20px; }

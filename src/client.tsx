@@ -1,6 +1,7 @@
 import type { Context } from './context-types.ts'
 
 import './client/styles.css'
+import { normalizeClientConfig } from './client/config.ts'
 import { AnnotationCoreClientService } from './client/service.tsx'
 import type { ClientConfig } from './client/service.tsx'
 import { applyRc2ClientAdapter } from './rc2/client-adapter.tsx'
@@ -11,11 +12,12 @@ export { AnnotationCoreClientService } from './client/service.tsx'
 
 export const inject: readonly string[] = ['remote', 'slots', 'sessions', 'conversation', 'conversationEvents']
 
-export function apply(ctx: Context, config: ClientConfig): void {
+export function apply(ctx: Context, config?: ClientConfig): void {
+  const normalized = normalizeClientConfig(config)
   ctx.inject(inject, async (ready) => {
     const disposeRemote = await ready.remote.$mount(TYPERT_REMOTE)
     ready.effect(() => () => { void disposeRemote() })
-    new AnnotationCoreClientService(ready, config)
+    new AnnotationCoreClientService(ready, normalized)
     applyRc2ClientAdapter(ready)
   })
 }
