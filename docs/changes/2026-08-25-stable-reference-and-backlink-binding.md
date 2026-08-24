@@ -18,6 +18,7 @@ Baseline commit: `d87b7bd` (`fix: stabilize rc2 client startup and composer snap
 - Commit finalization copies the validated SHA-256 digest onto the sent `ReferenceSet`.
 - Backlink bindings require and expose `userTextHash`, so source adapters can reject stale or mismatched message targets.
 - Source-preparation failures are normalized by their bounded public error code, so an independently bundled consumer adapter does not need to ship or import the Core Host implementation just to preserve `source-changed` and related outcomes.
+- Package metadata declares annotation protocol version 2 so Maintenance can reject incompatible plugin sets before touching a DSH profile.
 - Store schemas remain able to read earlier pending data, while new annotated submissions require the hash before they can finalize.
 - Bundle-contract expectations now include the existing `react-dom` runtime external.
 

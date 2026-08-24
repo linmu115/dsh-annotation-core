@@ -12,6 +12,7 @@ describe('annotation core client bundle contract', () => {
       peerDependencies: Record<string, string>
       dependencies: Record<string, string>
       dsh: { bundle: { patch: string }; client: { inject: string[]; platform: string } }
+      dshKnowledge: { annotationProtocolVersion: number }
     }
     expect(pkg.version).toBe('0.1.0')
     expect(Object.keys(pkg.exports)).toEqual(expect.arrayContaining([
@@ -39,6 +40,7 @@ describe('annotation core client bundle contract', () => {
       ],
       platform: 'web',
     })
+    expect(pkg.dshKnowledge).toEqual({ annotationProtocolVersion: 2 })
     expect(JSON.stringify({ peers: pkg.peerDependencies, dependencies: pkg.dependencies })).not.toMatch(/better-sidebar|obsidian/i)
   })
 
