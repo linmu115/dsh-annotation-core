@@ -43,6 +43,8 @@ export default [
     entry: {
       index: 'src/index.ts',
       protocol: 'src/protocol/index.ts',
+      'client-api': 'src/public/client-api.ts',
+      'host-api': 'src/public/host-api.ts',
       typert: 'src/remote/typert.ts',
       remote: 'src/remote/client.ts',
     },
