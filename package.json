@@ -15,11 +15,16 @@
       "types": "./lib/types/client.d.ts",
       "default": "./lib/client.js"
     },
+    "./protocol": {
+      "types": "./lib/types/protocol/index.d.ts",
+      "default": "./lib/protocol.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
     "lib/client.js",
+    "lib/protocol.js",
     "lib/types/**/*.d.ts",
     "cordis.patch.yml",
     "README.md",

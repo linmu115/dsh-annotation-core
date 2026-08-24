@@ -4,7 +4,7 @@ const pluginId = 'dsh-annotation-core'
 
 export default [
   {
-    entry: { index: 'src/index.ts' },
+    entry: { index: 'src/index.ts', protocol: 'src/protocol/index.ts' },
     outDir: 'lib',
     format: ['esm'],
     platform: 'node',
