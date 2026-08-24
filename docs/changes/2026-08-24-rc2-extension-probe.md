@@ -2,146 +2,117 @@
 
 ## 结论
 
-Task 1 的硬门槛全部通过。`dsh-annotation-core` 可以继续采用已经批准的方案：零长度 `CommandClaim` 保持原生输入正文不变；Host 创建普通、具有稳定 ID 的 user message；`agent/pre-step` 只按该 ID 的持久 journal 附加引用上下文；Client 使用显式 Typert mount；发送后的专用节点通过公开 conversation key 精确替换重复的通用 context 行。
+Task 1 的动态硬门槛已通过。`dsh-annotation-core` 可以继续采用批准后的路径：输入端用零长度 `CommandClaim` 保持正文不变；Host 先创建具有稳定 ID 的普通 user message，再按该 ID 建立 journal；`agent/pre-step` 只对精确命中的消息附加引用上下文；Client 显式挂载 Typert contribution；发送后由自定义 conversation node 渲染注释气泡，并通过公开 conversation key 精确隐藏同一 context message 的官方通用行。
 
-没有使用或保留任何降级路径：没有 session FIFO 猜测、零宽字符、原生 `ReferenceInsert`、可见 `@`、未知 `form` 选择器或 EAC 适配。
+未采用 session FIFO、零宽字符、原生 `ReferenceInsert`、可见 `@`、未知 `form` 选择器、EAC 或外壳专用逻辑。plain pass-through latch 仍按计划留到 Task 4，本阶段只验证所需 rc.2 边界，不提前实现业务功能。
 
-## 范围和安全边界
+## 范围与安全边界
 
 - 目标运行时：`D:\AI\DeepSeek-Harness\runtime-0.1.1-rc.2`
 - 开发仓库：`C:\Users\19717\OneDrive\文档\ChatGPT\dsh\dsh-annotation-core-staging`
 - 分支：`codex/unified-annotation-core`
-- 探针只读取官方 runtime 的发布文件。
-- 动态写入只发生在 `%TEMP%\dsh-annotation-core-rc2-probe-*\profile-web`，完成后递归删除。
-- 探针在执行前后校验关键 runtime 文件的 SHA-256；变化列表为空。
-- 没有启动 DSH、没有安装插件，也没有读取或写入真实 `home\profiles\web`。
-
-## 运行时版本
-
-以下被探测的包均为 `0.1.1-rc.2`：
-
-- `@deepseek-ai/dsh`
-- `@deepseek-ai/dsh-agent`
-- `@deepseek-ai/dsh-agent-loop`
-- `@deepseek-ai/dsh-attachment`
-- `@deepseek-ai/dsh-client-runtime`
-- `@deepseek-ai/dsh-client-ui-conversation`
-- `@deepseek-ai/dsh-client-ui-input-trigger`
-- `@deepseek-ai/dsh-llm`
-- `@deepseek-ai/dsh-storage-domain`
-- `@deepseek-ai/dsh-typert-loader`
-- `@deepseek-ai/dsh-typert-protocol`
+- 动态持久化只写入 `%TEMP%\dsh-annotation-core-rc2-dynamic-*`，结束后删除。
+- 官方 browser bundle 只从磁盘读取，并在内存中的真实 module-loader factory 内执行。为取得未公开的诊断对象，探针只在内存字符串中增加测试导出；没有改写 runtime 文件。
+- 探针会读取真实 `home\profiles\web` 以建立只读安全指纹，但不会启动 DSH、安装插件或写入该 profile。
+- 安全指纹覆盖整棵树的路径、符号链接、文件大小、mtime 与 mode；对 package/lock/config/cordis 清单以及 `lib/index.js`、`lib/client.js` 额外计算内容 SHA-256。执行前后变化列表均为空。
 
 ## 红灯证据
 
-先创建 `tests/rc2-projection.test.tsx`，但不创建探针实现。运行：
+最早的 `tests/rc2-projection.test.tsx` 只证明发布包中存在候选符号，不能证明这些边界可以组合运行，因此不再把源码字符串扫描当作硬门槛。
 
-```powershell
-pnpm vitest run tests/rc2-projection.test.tsx --pool=threads --maxWorkers=1
+提交 `46f42d5 test: require dynamic rc2 seam evidence` 先加入 `tests/rc2-dynamic-integration.test.tsx`，但故意不提供 `scripts/probe-rc2-dynamic.mts`。失败记录保存在：
+
+```text
+docs/changes/evidence/2026-08-24-rc2-dynamic-red.txt
 ```
 
-Vitest 按预期失败，错误为无法导入 `../scripts/probe-rc2-projection.mts`。Windows 沙箱不允许 Vitest 默认 forks pool 启动子进程，因此仓库的 `pnpm vitest` 脚本固定使用单个 threads worker；这只改变测试执行器，不改变被测接口。
+红灯错误为无法导入动态探针。后续绿灯由真实 rc.2 对象和临时数据路径提供，不由旧的静态扫描伪造。
 
-## 实际接口和行为
+## 动态验证结果
 
-### 1. 零长度命令声明
+### 1. 官方输入机与零长度 claim
 
-公开边界存在：
+探针执行官方 `dsh-client-ui-conversation` bundle 中实际的 `SessionInputShell` 和 `projectClipboard()`：
 
-- `SessionInput.beginCommand(claim, span)`
-- `CommandClaim.token`
-- `CommandClaim.images`
-- `CommandClaim.submit(args, actx, images)`
+- `token: ""` 与零长度 span 被 `beginCommand()` 接受。
+- draft、DOM textarea 值、复制文本和可访问文本均保持原正文，不增加 `@` 或内部标记。
+- command 收到真实序列化图片；submit 返回 error 后，正文和图片 ID 仍保留，图片没有被错误 release。
+- IME composition 前后没有注入隐藏字符。
+- 对照调用原生 `insertReference()` 会生成以 `@probe` 开头的可见文本，证明它不适合承载 core 注释身份。
 
-探针从官方 `lib/client.js` 中只读提取并在内存中执行实际 rc.2 `InputMachine`，没有把一份改写后的状态机当作替身。观察结果：
+rc.2 没有用于单次 claim 的公开即时 release API。因此最后一个 pending 被删除后的 plain pass-through latch 必须在 Task 4 按批准规则实现，不能用伪 success 清理状态。
 
-- `token: ""`、`span: { start: 0, end: 0 }` 被接受并进入 `claimed`。
-- 输入正文 `Explain this reference.` 完全不变；提交参数仍为完整正文。
-- `projectClipboard()` 仍返回完整正文。
-- 官方 textarea 直接使用 `value: draft`，因此 DOM 值和可访问文本不会增加 `@` 或内部标记。
-- command 返回 error 后恢复 `claimed`，正文保留。
-- `images: true` 允许图片进入 command；官方实现只在 success 后释放图片，error 不释放。
-- 公开 `SessionInput` 没有即时 release 方法。具体 `SessionInputShell.dispose()` 只属于完整 facade 生命周期，不能用于单次解除 claim。
+### 2. 真实 AgentLoop、消息 ID 与 pre-step
 
-这个限制确认了既定 latch 规则：最后一个 pending 被删除后，当前零长度 claim 只能由下一次成功的普通非空提交或页面重载自然解除。不能伪造一次 success 来清 claim，因为 rc.2 会同时切断 undo/redo。
+探针构造实际的 `AgentRegistry`、`SessionStore`、`SystemPrompt`、`LlmRuntime`、`ToolRuntime`、`AgentLoop` 和 Agent：
 
-### 2. Host 消息 ID 和 `pre-step`
+- `createUserMessage()` 先生成稳定消息 ID。
+- 该 ID 进入临时 journal 后，消息经真实 `agent.send()` 与 inbox claim 到达 `agent/pre-step`。
+- waterfall 只为命中的 ID 附加 context；同 session 的另一个消息不会误命中。
+- 下游 listener 返回 `reject` 时，core listener 保留 reject，不把它覆盖成 enter。
+- `next-turn` 与 `wakeup: true` 由真实 AgentLoop 消费，最终恢复 idle。
 
-公开边界存在：
-
-- `createUserMessage()` 在消息发布前生成并冻结稳定 `MessageId`。
-- `Agent.send(message, target, wakeup)` 接受已经具有 ID 的 `UserMessage`。
-- `agent/pre-step` 接收从 inbox claim 出来的 `UserMessage[]`，waterfall 可以返回替换后的 `enter.messages`。
-
-探针用真实 `createUserMessage()` 创建 user message，在发送前把该 ID 登记到临时 journal。`pre-step` 以相同 ID 命中并在原 user message 后附加 plugin context；另一个同 session 的 user message ID 不命中。因此实现应固定为：
+正式实现因此固定使用：
 
 ```text
 Host prepare -> createUserMessage -> journal[userMessage.id]
 -> agent.send(message, "next-turn", true)
--> pre-step 按 messages 中的精确 ID 读取 journal
+-> pre-step 按 messages 中的精确 ID 查 journal
 ```
 
-不允许按 session 当前 pending、队首或到达时间猜测。
+### 3. Storage Domain 与附件准入
 
-### 3. 图片持久化准入
+探针在临时 profile 中启动官方 JSON backend，仅用于验证 rc.2 持久化边界：
 
-`@deepseek-ai/dsh-attachment` 公开 `admitEncodedImages(store, images)`。探针把规范 base64 PNG 交给真实准入函数，再由临时 profile 内的内容寻址 store 写入 ledger；返回 ref 与重新读取的 ledger 完全一致。无效 base64 会在进入 store 前被官方函数拒绝。
+- domain 写入、close、重新 open 后仍能读取同一记录。
+- `admitEncodedImages()` 接收规范 PNG，写入真实 `LocalAttachmentStore`，返回 durable ref，并可重新读取内容。
+- 畸形 base64 在写入前被拒绝，附件树没有增加文件。
 
-正式实现应在 Host 创建 user message 之前完成准入，并把返回的 durable `ImageAttachmentRef` 写入 message content；失败时不创建 journal，也不发送消息。
+正式 core 只调用真实 web profile 已配置的 storage backend，不会在 live profile 再实例化一套 `storage-json`。
 
-### 4. Typert Remote
+### 4. Typert Host/Client 往返
 
-确认的公开路径：
+探针动态创建一个带 `./typert` 导出的临时包，并运行实际的：
 
-- Host 包必须导出 `./typert`，其中 `TYPERT.face` 为 `host`。
-- `dsh-typert-loader` 读取该导出并调用 `ctx.typert.register(manifest)`。
-- Client 必须显式执行 `await ctx.remote.$mount(TYPERT_REMOTE)`。
-- 每个方法返回 `RemoteResult<T>`；Client 必须区分 `ok: true` 与 `ok: false`，不能把 error arm 当业务值。
+- `dsh-typert-loader`
+- `TypertRegistry`
+- `TypertRemoteService`
+- `TypertGatewayService`
+- 官方 `dsh-api-gateway` client bundle
 
-`@deepseek-ai/dsh-api-remotes` 只显式 mount 它自己列出的官方贡献，不会自动 mount 第三方 core。
+Host descriptor 被 loader 注册；Client 显式执行 `$mount()` 后得到 `remote.probe.echo()`；请求经真实 gateway 调用 Host service，Client 正确解包 `RemoteResult`，结果为 `echo:round-trip`。这验证了第三方 core 必须自行 mount，不能依赖官方 remotes 包自动挂载。
 
-### 5. Storage Domain
+### 5. 官方 conversation 投影与精确行恢复
 
-`DomainFacility.open(spec)` 和调用方拥有的 `Domain.close()` 均存在。`close()` 会等待已排队写入、关闭 backend unit，再释放 domain name。core 应使用官方 web profile 已配置的 storage backend；不得实例化第二个 `storage-json`。
+探针从官方 conversation bundle 中以内存诊断导出取得实际 `messageDefinition`，并与临时 core definition 一起注册到真实：
 
-### 6. 会话投影
+- `ConversationEventRegistry`
+- `ConversationViewRegistry`
+- `ConversationNodeAssembler`
 
-确认的公开路径：
+同一 plugin context event 同时生成官方 `input-message` node 与 core `dsh-annotation` node，两者保留相同 `anchorSeq`。官方通用行 key 与 `conversationContextKey("input-message", contextMessageId)` 完全一致。DOM 验证只隐藏该精确 `data-chat-anchor-key` 行，不影响同 kind 的无关行；dispose 后原 display 值被恢复。
 
-- `conversationEvents.register(definition)` 注册自定义 `ConversationNodeDefinition`。
-- `conversation.chat.node` slot 可以渲染专用节点。
-- `conversationContextKey(kind, id)` 的 rc.2 公式为 `` `${kind.length}:${kind}${id}` ``。
-- 通用 plugin context 会被 `input-message` definition 接受，key 应为 `conversationContextKey("input-message", contextMessageId)`。
-- chat DOM 行公开 `data-chat-anchor-key` 和 `data-chat-flow-kind`；官方自身也通过逐行比较 `row.dataset.chatAnchorKey === key` 精确定位。
-
-因此 core 只隐藏这个精确 key 对应的通用行，并在同一序列位置渲染注释 pill。不能用 CSS 类名、文字、未知 `form` 或宽泛的 plugin selector。
-
-### 7. 不使用原生 ReferenceInsert
-
-实际 rc.2 `referenceDraftText()` 固定返回 `@${label}`。探针输入 label `probe`，结果为 `@probe`。这正是用户要求去除的可见符号，因此 `ReferenceInsert` 只作为反例验证，不进入 core 实现。
-
-### 8. 未知 context form
-
-`contextForm()` 只识别 rc.2 的固定语义集合；未知值返回 `null` 并按 opaque context 展示。core 不会把自定义未知 `form` 当 DOM 或节点匹配依据。
+静态发现探针同时确认：未知 context `form` 会按 opaque context 处理，因此正式实现不会把自定义 form 当 selector。
 
 ## 绿灯证据
 
+执行：
+
 ```powershell
 pnpm typecheck
-pnpm vitest run tests/rc2-projection.test.tsx
+pnpm vitest run tests/rc2-projection.test.tsx tests/rc2-dynamic-integration.test.tsx --reporter=verbose
 pnpm build
 ```
 
 结果：
 
 - TypeScript：通过
-- rc.2 focused test：1 file passed
-- Host ESM bundle：生成 `lib/index.js`
-- Client module-loader bundle：生成 `lib/client.js`
-- 临时 profile：已删除
-- runtime 变化列表：空
-- live web profile 写入：无
+- focused tests：2 files、6 tests 全部通过
+- Host ESM 与 Client module-loader bundle：构建通过
+- runtime 安全指纹变化：空
+- live web 安全指纹变化：空
+- 临时根目录残留：空
 
-## 下一阶段约束
+## 后续约束
 
-Task 2 以后继续以本报告为硬边界。若未来 DSH 版本改变零长度 claim、消息 ID、附件准入、Typert mount 或 conversation key 的任何一项，版本切换必须重新运行该探针；探针失败时停止部署，不自动改用可见 mention、零宽 token 或 session FIFO。
+Task 2 以后继续以动态探针为 rc.2 硬边界。未来切换 DSH 版本时必须重跑；任何关键边界失败都应停止部署并更新设计，不能自动降级到可见 mention、零宽 token、session FIFO 或外壳补丁。
