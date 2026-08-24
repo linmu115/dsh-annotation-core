@@ -2,6 +2,7 @@ import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 
 import type { ReferenceItem } from '../domain/model.ts'
+import type { BacklinkReceiptV2 } from '../protocol/index.ts'
 import type { SourceType } from '../protocol/index.ts'
 import type {
   AnnotationCoreHost,
@@ -59,7 +60,7 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
     await this.adapters.get(item.sourceType)?.discardPending?.(item)
   }
 
-  async commitBacklink(binding: SentReferenceBinding): Promise<void> {
-    await this.adapters.get(binding.item.sourceType)?.commitBacklink?.(binding)
+  async commitBacklink(binding: SentReferenceBinding): Promise<BacklinkReceiptV2 | undefined> {
+    return this.adapters.get(binding.item.sourceType)?.commitBacklink?.(binding)
   }
 }

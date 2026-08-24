@@ -2,6 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteFailure, RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 
 import type { AdmissionRecord } from '../host/store.ts'
+import type { SubmissionResult } from '../host/submit-annotated.ts'
 import type { ReferenceSet } from '../domain/model.ts'
 import type {
   AddReferenceRequest,
@@ -44,8 +45,8 @@ export interface AnnotationCoreRemoteNamespace {
     pending: ReferenceSet | null
   }>>
   readAdmission(clientSubmissionId: string): Promise<RemoteResult<AdmissionRecord | null>>
-  submitAnnotated(request: SubmitAnnotatedRequest, signal?: AbortSignal): Promise<RemoteResult<unknown>>
-  submitPlainClaim(request: SubmitPlainClaimRequest, signal?: AbortSignal): Promise<RemoteResult<unknown>>
+  submitAnnotated(request: SubmitAnnotatedRequest, signal?: AbortSignal): Promise<RemoteResult<SubmissionResult>>
+  submitPlainClaim(request: SubmitPlainClaimRequest, signal?: AbortSignal): Promise<RemoteResult<SubmissionResult>>
   retryBacklink(request: RetryBacklinkRequest): Promise<RemoteResult<unknown>>
 }
 

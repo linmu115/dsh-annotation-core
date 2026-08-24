@@ -4,6 +4,13 @@ import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 
 import type { ReferenceSource } from '../protocol/index.ts'
 import type { AnnotationStore } from '../host/store.ts'
+import { AggregateRevisionConflictError } from '../host/store.ts'
+import type { BacklinkOutbox } from '../host/backlink-outbox.ts'
+import type {
+  AnnotationSubmissionCoordinator,
+  SubmitAnnotatedInput,
+  SubmitPlainInput,
+} from '../host/submit-annotated.ts'
 
 export interface AddReferenceRequest {
   readonly expectedRevision: number
@@ -42,25 +49,8 @@ export interface ReuseReferenceRequest {
   readonly createdAt: number
 }
 
-export interface SubmitAnnotatedRequest {
-  readonly expectedRevision: number
-  readonly setId: string
-  readonly referenceRevision: number
-  readonly clientSubmissionId: string
-  readonly requestDigest: string
-  readonly text: string
-  readonly images?: readonly unknown[]
-  readonly createdAt: number
-}
-
-export interface SubmitPlainClaimRequest {
-  readonly expectedRevision: number
-  readonly clientSubmissionId: string
-  readonly requestDigest: string
-  readonly text: string
-  readonly images?: readonly unknown[]
-  readonly createdAt: number
-}
+export type SubmitAnnotatedRequest = SubmitAnnotatedInput
+export type SubmitPlainClaimRequest = SubmitPlainInput
 
 export interface RetryBacklinkRequest {
   readonly expectedRevision: number
@@ -73,7 +63,12 @@ export interface RetryBacklinkRequest {
  * Task 5 replaces the prepared-only submit methods with the full Agent transaction.
  */
 export class AnnotationCoreRemoteService extends TypertRemoteService {
-  constructor(ctx: Context, readonly store: AnnotationStore) {
+  constructor(
+    ctx: Context,
+    readonly store: AnnotationStore,
+    readonly submissions?: AnnotationSubmissionCoordinator,
+    readonly outbox?: BacklinkOutbox,
+  ) {
     super(ctx, 'annotationCore')
   }
 
@@ -123,37 +118,20 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
     return this.store.readAdmission(agent.id, clientSubmissionId) ?? null
   }
 
-  async submitAnnotated(agent: Agent, request: SubmitAnnotatedRequest, _signal: AbortSignal) {
-    const pending = this.store.readPending(agent.id)
-    if (pending.pending?.setId !== request.setId || pending.pending.revision !== request.referenceRevision) {
-      throw new Error('Annotated submission does not match the Host-authoritative pending set revision')
-    }
-    return this.store.prepareAdmission(agent.id, {
-      expectedRevision: request.expectedRevision,
-      clientSubmissionId: request.clientSubmissionId,
-      requestDigest: request.requestDigest,
-      kind: 'annotated',
-      setId: request.setId,
-      referenceRevision: request.referenceRevision,
-      createdAt: request.createdAt,
-    })
+  async submitAnnotated(agent: Agent, request: SubmitAnnotatedRequest, signal: AbortSignal) {
+    if (this.submissions === undefined) throw new Error('Annotation submission runtime is unavailable')
+    return this.submissions.submitAnnotated(agent, request, signal)
   }
 
-  async submitPlainClaim(agent: Agent, request: SubmitPlainClaimRequest, _signal: AbortSignal) {
-    if (request.text.trim().length === 0) throw new RangeError('Plain claim requires nonempty text')
-    if (this.store.readPendingState(agent.id).pendingCount !== 0) {
-      throw new Error('Plain claim is blocked while Host-authoritative references are pending')
-    }
-    return this.store.prepareAdmission(agent.id, {
-      expectedRevision: request.expectedRevision,
-      clientSubmissionId: request.clientSubmissionId,
-      requestDigest: request.requestDigest,
-      kind: 'plain',
-      createdAt: request.createdAt,
-    })
+  async submitPlainClaim(agent: Agent, request: SubmitPlainClaimRequest, signal: AbortSignal) {
+    if (this.submissions === undefined) throw new Error('Annotation submission runtime is unavailable')
+    return this.submissions.submitPlain(agent, request, signal)
   }
 
-  retryBacklink(agent: Agent, request: RetryBacklinkRequest) {
-    return this.store.retryBacklink(agent.id, request)
+  async retryBacklink(agent: Agent, request: RetryBacklinkRequest) {
+    const actual = this.store.read(agent.id).revision
+    if (actual !== request.expectedRevision) throw new AggregateRevisionConflictError(request.expectedRevision, actual)
+    if (this.outbox === undefined) return this.store.retryBacklink(agent.id, request)
+    return this.outbox.retry(agent.id, request.setId, request.referenceId)
   }
 }

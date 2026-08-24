@@ -51,6 +51,11 @@ const ReuseReferenceRequestSchema = z.object({
   referenceId: z.string().min(1),
   createdAt: RevisionSchema,
 }).strict()
+const SubmitImageAttachmentSchema = z.object({
+  mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
+  data: z.string(),
+  name: z.string().optional(),
+}).strict()
 const SubmitAnnotatedRequestSchema = z.object({
   ...MutationBase,
   setId: z.string().min(1),
@@ -58,7 +63,8 @@ const SubmitAnnotatedRequestSchema = z.object({
   clientSubmissionId: z.string().min(1),
   requestDigest: Sha256DigestSchema,
   text: z.string(),
-  images: z.array(z.unknown()).optional(),
+  images: z.array(SubmitImageAttachmentSchema).optional(),
+  useSavedSnapshotFor: z.array(z.string().min(1)).optional(),
   createdAt: RevisionSchema,
 }).strict()
 const SubmitPlainClaimRequestSchema = z.object({
@@ -66,7 +72,7 @@ const SubmitPlainClaimRequestSchema = z.object({
   clientSubmissionId: z.string().min(1),
   requestDigest: Sha256DigestSchema,
   text: z.string(),
-  images: z.array(z.unknown()).optional(),
+  images: z.array(SubmitImageAttachmentSchema).optional(),
   createdAt: RevisionSchema,
 }).strict()
 const RetryBacklinkRequestSchema = z.object({

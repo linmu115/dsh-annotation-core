@@ -105,6 +105,7 @@ export interface AdmissionRecord {
   readonly setId?: string | undefined
   readonly referenceRevision?: number | undefined
   readonly userMessageId?: string | undefined
+  readonly contextMessageId?: string | undefined
   readonly lastError?: string | undefined
   readonly createdAt: number
   readonly updatedAt: number
@@ -118,6 +119,7 @@ const AdmissionRecordSchema = z.object({
   setId: NonEmptyStringSchema.optional(),
   referenceRevision: NonNegativeIntegerSchema.optional(),
   userMessageId: NonEmptyStringSchema.optional(),
+  contextMessageId: NonEmptyStringSchema.optional(),
   lastError: z.string().optional(),
   createdAt: NonNegativeIntegerSchema,
   updatedAt: NonNegativeIntegerSchema,
@@ -129,6 +131,8 @@ export interface SubmissionJournalEntry {
   readonly requestDigest: string
   readonly setId?: string | undefined
   readonly contextMessageId?: string | undefined
+  readonly contextDigest?: string | undefined
+  readonly preparedSet?: ReferenceSet | undefined
   readonly createdAt: number
 }
 
@@ -138,6 +142,8 @@ const SubmissionJournalEntrySchema = z.object({
   requestDigest: Sha256DigestSchema,
   setId: NonEmptyStringSchema.optional(),
   contextMessageId: NonEmptyStringSchema.optional(),
+  contextDigest: Sha256DigestSchema.optional(),
+  preparedSet: ReferenceSetSchema.optional(),
   createdAt: NonNegativeIntegerSchema,
 }).strict()
 
@@ -234,6 +240,13 @@ export class AdmissionConflictError extends Error {
   constructor(readonly clientSubmissionId: string) {
     super(`Admission ${JSON.stringify(clientSubmissionId)} already exists with different canonical input`)
     this.name = 'AdmissionConflictError'
+  }
+}
+
+export class UnresolvedAdmissionError extends Error {
+  constructor(readonly clientSubmissionId: string) {
+    super(`Admission ${JSON.stringify(clientSubmissionId)} must reach a terminal state before a new submission can begin`)
+    this.name = 'UnresolvedAdmissionError'
   }
 }
 
@@ -682,6 +695,359 @@ export class AnnotationStore {
     return record === undefined ? undefined : clone(record)
   }
 
+  async beginAnnotatedAdmission(sessionId: string, input: {
+    expectedRevision: number
+    clientSubmissionId: string
+    requestDigest: string
+    setId: string
+    referenceRevision: number
+    createdAt: number
+  }): Promise<{ revision: number; record: AdmissionRecord; set: ReferenceSet | undefined; created: boolean }> {
+    Sha256DigestSchema.parse(input.requestDigest)
+    return this.mutate<{ revision: number; record: AdmissionRecord; set: ReferenceSet | undefined; created: boolean }>(sessionId, (aggregate) => {
+      const existing = aggregate.admissions[input.clientSubmissionId]
+      if (existing !== undefined) {
+        if (
+          existing.requestDigest !== input.requestDigest ||
+          existing.kind !== 'annotated' ||
+          existing.setId !== input.setId ||
+          existing.referenceRevision !== input.referenceRevision
+        ) throw new AdmissionConflictError(input.clientSubmissionId)
+        return {
+          changed: false,
+          aggregate,
+          value: {
+            revision: aggregate.revision,
+            record: existing,
+            set: aggregate.pending === undefined ? undefined : clone(aggregate.pending),
+            created: false,
+          },
+        }
+      }
+      const unresolved = Object.values(aggregate.admissions).find(
+        (candidate) => candidate.state === 'prepared' || candidate.state === 'enqueued',
+      )
+      if (unresolved !== undefined) throw new UnresolvedAdmissionError(unresolved.clientSubmissionId)
+      assertExpected(aggregate, input.expectedRevision)
+      const pending = aggregate.pending
+      if (pending === undefined || pending.setId !== input.setId) throw new RangeError('Pending reference set does not match')
+      if (pending.revision !== input.referenceRevision) {
+        throw new AggregateRevisionConflictError(input.referenceRevision, pending.revision)
+      }
+      const locked = beginReferenceCommit(pending, pending.revision)
+      const record: AdmissionRecord = {
+        clientSubmissionId: input.clientSubmissionId,
+        requestDigest: input.requestDigest,
+        kind: 'annotated',
+        state: 'prepared',
+        setId: input.setId,
+        referenceRevision: input.referenceRevision,
+        createdAt: input.createdAt,
+        updatedAt: input.createdAt,
+      }
+      const next: SessionAggregate = {
+        ...aggregate,
+        revision: aggregate.revision + 1,
+        pending: locked,
+        admissions: { ...aggregate.admissions, [input.clientSubmissionId]: record },
+      }
+      return { changed: true, aggregate: next, value: { revision: next.revision, record, set: locked, created: true } }
+    })
+  }
+
+  async beginPlainAdmission(sessionId: string, input: {
+    expectedRevision: number
+    clientSubmissionId: string
+    requestDigest: string
+    createdAt: number
+  }): Promise<{ revision: number; record: AdmissionRecord; created: boolean }> {
+    Sha256DigestSchema.parse(input.requestDigest)
+    return this.mutate<{ revision: number; record: AdmissionRecord; created: boolean }>(sessionId, (aggregate) => {
+      const existing = aggregate.admissions[input.clientSubmissionId]
+      if (existing !== undefined) {
+        if (existing.requestDigest !== input.requestDigest || existing.kind !== 'plain') {
+          throw new AdmissionConflictError(input.clientSubmissionId)
+        }
+        return { changed: false, aggregate, value: { revision: aggregate.revision, record: existing, created: false } }
+      }
+      const unresolved = Object.values(aggregate.admissions).find(
+        (candidate) => candidate.state === 'prepared' || candidate.state === 'enqueued',
+      )
+      if (unresolved !== undefined) throw new UnresolvedAdmissionError(unresolved.clientSubmissionId)
+      assertExpected(aggregate, input.expectedRevision)
+      if ((aggregate.pending?.items.length ?? 0) !== 0) {
+        throw new Error('Plain claim is blocked while Host-authoritative references are pending')
+      }
+      const record: AdmissionRecord = {
+        clientSubmissionId: input.clientSubmissionId,
+        requestDigest: input.requestDigest,
+        kind: 'plain',
+        state: 'prepared',
+        createdAt: input.createdAt,
+        updatedAt: input.createdAt,
+      }
+      const next = {
+        ...aggregate,
+        revision: aggregate.revision + 1,
+        admissions: { ...aggregate.admissions, [input.clientSubmissionId]: record },
+      }
+      return { changed: true, aggregate: next, value: { revision: next.revision, record, created: true } }
+    })
+  }
+
+  async recordEnqueuedSubmission(sessionId: string, input: {
+    expectedRevision: number
+    clientSubmissionId: string
+    requestDigest: string
+    userMessageId: string
+    contextMessageId?: string
+    contextDigest?: string
+    preparedSet?: ReferenceSet
+    createdAt: number
+  }): Promise<{ revision: number; admission: AdmissionRecord; journal: SubmissionJournalEntry | undefined; created: boolean }> {
+    Sha256DigestSchema.parse(input.requestDigest)
+    if (input.contextDigest !== undefined) Sha256DigestSchema.parse(input.contextDigest)
+    return this.mutate<{ revision: number; admission: AdmissionRecord; journal: SubmissionJournalEntry | undefined; created: boolean }>(sessionId, (aggregate) => {
+      const admission = aggregate.admissions[input.clientSubmissionId]
+      if (admission === undefined) throw new RangeError('Submission admission does not exist')
+      if (admission.requestDigest !== input.requestDigest) throw new AdmissionConflictError(input.clientSubmissionId)
+      if (admission.userMessageId !== undefined) {
+        if (admission.userMessageId !== input.userMessageId || admission.contextMessageId !== input.contextMessageId) {
+          throw new AdmissionConflictError(input.clientSubmissionId)
+        }
+        const existingJournal = aggregate.submissionJournal[input.userMessageId]
+        return {
+          changed: false,
+          aggregate,
+          value: { revision: aggregate.revision, admission, journal: existingJournal, created: false },
+        }
+      }
+      assertExpected(aggregate, input.expectedRevision)
+      if (admission.state !== 'prepared') throw new Error(`Admission cannot be enqueued from ${admission.state}`)
+      const annotated = admission.kind === 'annotated'
+      if (annotated && (input.preparedSet === undefined || input.contextMessageId === undefined || input.contextDigest === undefined)) {
+        throw new TypeError('Annotated enqueue requires prepared set, context ID and context digest')
+      }
+      if (!annotated && (input.preparedSet !== undefined || input.contextMessageId !== undefined || input.contextDigest !== undefined)) {
+        throw new TypeError('Plain enqueue cannot carry annotation context')
+      }
+      const parsedPrepared = input.preparedSet === undefined ? undefined : ReferenceSetSchema.parse(input.preparedSet)
+      if (annotated && (
+        parsedPrepared?.state !== 'committing' ||
+        parsedPrepared.setId !== admission.setId ||
+        parsedPrepared.profileId !== aggregate.profileId ||
+        parsedPrepared.sessionId !== aggregate.sessionId ||
+        parsedPrepared.revision !== (admission.referenceRevision ?? -1) + 1 ||
+        aggregate.pending?.setId !== admission.setId ||
+        aggregate.pending.state !== 'committing'
+      )) throw new Error('Prepared annotation set does not match the locked admission identity')
+      const journal: SubmissionJournalEntry | undefined = annotated ? {
+        userMessageId: input.userMessageId,
+        clientSubmissionId: input.clientSubmissionId,
+        requestDigest: input.requestDigest,
+        setId: admission.setId,
+        contextMessageId: input.contextMessageId,
+        contextDigest: input.contextDigest,
+        preparedSet: clone(parsedPrepared as ReferenceSet),
+        createdAt: input.createdAt,
+      } : undefined
+      const enqueued: AdmissionRecord = {
+        ...admission,
+        state: 'enqueued',
+        userMessageId: input.userMessageId,
+        ...(input.contextMessageId === undefined ? {} : { contextMessageId: input.contextMessageId }),
+        updatedAt: input.createdAt,
+      }
+      const next: SessionAggregate = {
+        ...aggregate,
+        revision: aggregate.revision + 1,
+        admissions: { ...aggregate.admissions, [input.clientSubmissionId]: enqueued },
+        submissionJournal: journal === undefined
+          ? aggregate.submissionJournal
+          : { ...aggregate.submissionJournal, [input.userMessageId]: journal },
+        flushReconciliations: {
+          ...aggregate.flushReconciliations,
+          [input.userMessageId]: {
+            userMessageId: input.userMessageId,
+            userObserved: false,
+            contextObserved: !annotated,
+            flushState: 'pending',
+            updatedAt: input.createdAt,
+          },
+        },
+      }
+      return { changed: true, aggregate: next, value: { revision: next.revision, admission: enqueued, journal, created: true } }
+    })
+  }
+
+  readSubmissionJournal(sessionId: string, userMessageId: string): SubmissionJournalEntry | undefined {
+    const entry = this.read(sessionId).submissionJournal[userMessageId]
+    return entry === undefined ? undefined : clone(entry)
+  }
+
+  async failAdmissionAndRestorePending(sessionId: string, input: {
+    expectedRevision: number
+    clientSubmissionId: string
+    error: string
+    updatedAt: number
+  }): Promise<{ revision: number; admission: AdmissionRecord; pending: ReferenceSet | undefined }> {
+    return this.mutate<{ revision: number; admission: AdmissionRecord; pending: ReferenceSet | undefined }>(sessionId, (aggregate) => {
+      assertExpected(aggregate, input.expectedRevision)
+      const admission = aggregate.admissions[input.clientSubmissionId]
+      if (admission === undefined) throw new RangeError('Submission admission does not exist')
+      if (admission.state === 'durable') {
+        return { changed: false, aggregate, value: { revision: aggregate.revision, admission, pending: aggregate.pending } }
+      }
+      let pending = aggregate.pending
+      const currentPending = pending
+      if (admission.kind === 'annotated' && currentPending !== undefined && currentPending.setId === admission.setId && currentPending.state === 'committing') {
+        const failed = markReferenceCommitFailed(currentPending, currentPending.revision)
+        pending = restoreFailedReferenceCommit(failed, failed.revision)
+      } else if (admission.kind === 'annotated' && currentPending !== undefined && currentPending.setId === admission.setId && currentPending.state === 'failed') {
+        pending = restoreFailedReferenceCommit(currentPending, currentPending.revision)
+      }
+      const failedAdmission: AdmissionRecord = {
+        ...admission,
+        state: 'failed',
+        lastError: input.error,
+        updatedAt: input.updatedAt,
+      }
+      const next: SessionAggregate = {
+        ...aggregate,
+        revision: aggregate.revision + 1,
+        ...(pending === undefined ? {} : { pending }),
+        admissions: { ...aggregate.admissions, [input.clientSubmissionId]: failedAdmission },
+      }
+      return { changed: true, aggregate: next, value: { revision: next.revision, admission: failedAdmission, pending } }
+    })
+  }
+
+  async finalizeDurableSubmission(sessionId: string, input: {
+    expectedRevision: number
+    clientSubmissionId: string
+    userMessageId: string
+    userObserved: boolean
+    contextObserved: boolean
+    committedAt: number
+  }): Promise<{ revision: number; admission: AdmissionRecord; sent: ReferenceSet | undefined }> {
+    return this.mutate<{ revision: number; admission: AdmissionRecord; sent: ReferenceSet | undefined }>(sessionId, (aggregate) => {
+      const admission = aggregate.admissions[input.clientSubmissionId]
+      if (admission === undefined) throw new RangeError('Submission admission does not exist')
+      if (admission.userMessageId !== input.userMessageId) throw new AdmissionConflictError(input.clientSubmissionId)
+      if (admission.state === 'durable') {
+        const sent = admission.setId === undefined
+          ? undefined
+          : aggregate.sentSets.find((set) => set.setId === admission.setId)
+        return { changed: false, aggregate, value: { revision: aggregate.revision, admission, sent } }
+      }
+      assertExpected(aggregate, input.expectedRevision)
+      if (admission.state !== 'enqueued' && admission.state !== 'failed') {
+        throw new Error(`Admission cannot become durable from ${admission.state}`)
+      }
+      const journal = aggregate.submissionJournal[input.userMessageId]
+      let sent: ReferenceSet | undefined
+      let pending = aggregate.pending
+      const jobs = { ...aggregate.backlinkJobs }
+      if (admission.kind === 'annotated') {
+        if (!input.contextObserved || journal?.preparedSet === undefined || journal.setId !== admission.setId) {
+          throw new Error('Annotated durability requires the exact persisted context event and prepared set')
+        }
+        const prepared = journal.preparedSet
+        sent = completeReferenceCommit(prepared, {
+          expectedRevision: prepared.revision,
+          committedAt: input.committedAt,
+          userMessageId: input.userMessageId,
+          userAnchorId: input.userMessageId,
+        })
+        pending = undefined
+        for (const item of sent.items) {
+          if (item.sourceType !== 'obsidian-note') continue
+          const key = `${sent.setId}:${item.referenceId}`
+          jobs[key] ??= {
+            setId: sent.setId,
+            referenceId: item.referenceId,
+            state: 'pending',
+            attempts: 0,
+            createdAt: input.committedAt,
+            updatedAt: input.committedAt,
+          }
+        }
+      }
+      const durable: AdmissionRecord = { ...admission, state: 'durable', updatedAt: input.committedAt }
+      const reconciliation: FlushReconciliationRecord = {
+        userMessageId: input.userMessageId,
+        userObserved: input.userObserved,
+        contextObserved: input.contextObserved,
+        flushState: 'durable',
+        updatedAt: input.committedAt,
+      }
+      const next: SessionAggregate = {
+        ...aggregate,
+        revision: aggregate.revision + 1,
+        ...(pending === undefined ? { pending: undefined } : { pending }),
+        sentSets: sent === undefined || aggregate.sentSets.some((candidate) => candidate.setId === sent?.setId)
+          ? aggregate.sentSets
+          : [...aggregate.sentSets, sent],
+        admissions: { ...aggregate.admissions, [input.clientSubmissionId]: durable },
+        flushReconciliations: { ...aggregate.flushReconciliations, [input.userMessageId]: reconciliation },
+        backlinkJobs: jobs,
+      }
+      return { changed: true, aggregate: next, value: { revision: next.revision, admission: durable, sent } }
+    })
+  }
+
+  listBacklinkJobs(sessionId: string): readonly BacklinkJob[] {
+    return Object.values(this.read(sessionId).backlinkJobs).map(clone)
+  }
+
+  async recordBacklinkResult(sessionId: string, input: {
+    expectedRevision: number
+    setId: string
+    referenceId: string
+    receipt?: BacklinkReceiptV2
+    error?: string
+    updatedAt: number
+  }): Promise<{ revision: number; job: BacklinkJob }> {
+    if ((input.receipt === undefined) === (input.error === undefined)) {
+      throw new TypeError('Backlink result requires exactly one receipt or error')
+    }
+    return this.mutate(sessionId, (aggregate) => {
+      assertExpected(aggregate, input.expectedRevision)
+      const key = `${input.setId}:${input.referenceId}`
+      const existing = aggregate.backlinkJobs[key]
+      if (existing === undefined) throw new RangeError(`Unknown backlink job ${JSON.stringify(key)}`)
+      const job: BacklinkJob = input.receipt === undefined ? {
+        ...existing,
+        state: 'failed',
+        attempts: existing.attempts + 1,
+        lastError: input.error as string,
+        updatedAt: input.updatedAt,
+      } : {
+        setId: existing.setId,
+        referenceId: existing.referenceId,
+        state: 'written',
+        attempts: existing.attempts + 1,
+        receipt: input.receipt,
+        createdAt: existing.createdAt,
+        updatedAt: input.updatedAt,
+      }
+      const next = {
+        ...aggregate,
+        revision: aggregate.revision + 1,
+        backlinkJobs: { ...aggregate.backlinkJobs, [key]: job },
+      }
+      return { changed: true, aggregate: next, value: { revision: next.revision, job } }
+    })
+  }
+
+  sessionIds(): readonly string[] {
+    this.assertOpen()
+    const prefix = `${this.options.profileId}:`
+    return [...this.table.keys()]
+      .filter((key) => key.startsWith(prefix))
+      .map((key) => key.slice(prefix.length))
+  }
+
   async recordSubmissionJournal(sessionId: string, input: {
     expectedRevision: number
     userMessageId: string
@@ -689,6 +1055,8 @@ export class AnnotationStore {
     requestDigest: string
     setId?: string
     contextMessageId?: string
+    contextDigest?: string
+    preparedSet?: ReferenceSet
     createdAt: number
   }): Promise<{ revision: number; record: SubmissionJournalEntry; created: boolean }> {
     return this.mutate<{ revision: number; record: SubmissionJournalEntry; created: boolean }>(sessionId, (aggregate) => {
@@ -699,6 +1067,8 @@ export class AnnotationStore {
         requestDigest: input.requestDigest,
         ...(input.setId === undefined ? {} : { setId: input.setId }),
         ...(input.contextMessageId === undefined ? {} : { contextMessageId: input.contextMessageId }),
+        ...(input.contextDigest === undefined ? {} : { contextDigest: input.contextDigest }),
+        ...(input.preparedSet === undefined ? {} : { preparedSet: clone(input.preparedSet) }),
         createdAt: input.createdAt,
       }
       if (existing !== undefined) {
@@ -791,7 +1161,7 @@ export class AnnotationStore {
       const job: BacklinkJob = {
         ...retryable,
         state: 'pending',
-        attempts: existing.attempts + 1,
+        attempts: existing.attempts,
         updatedAt: input.updatedAt ?? Date.now(),
       }
       const next = {

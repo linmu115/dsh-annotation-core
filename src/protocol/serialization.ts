@@ -1,3 +1,7 @@
+import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment'
+
+import type { PreparedReferenceDocument } from '../domain/budget.ts'
+import type { ReferenceItem, ReferenceSet } from '../domain/model.ts'
 import type { BacklinkCommitV2 } from './schema.ts'
 
 const SHA256_INITIAL = new Uint32Array([
@@ -162,4 +166,129 @@ export function serializeAnnotationEnvelope(value: unknown): string {
 
 export function serializeReferenceDocumentsEnvelope(value: unknown): string {
   return `<dsh-reference-documents>\n${canonicalJson(value)}\n</dsh-reference-documents>`
+}
+
+function escapeXmlAttribute(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => {
+    switch (character) {
+      case '&': return '&amp;'
+      case '<': return '&lt;'
+      case '>': return '&gt;'
+      case '"': return '&quot;'
+      case "'": return '&apos;'
+      default: return character
+    }
+  })
+}
+
+export interface SerializedAnnotationItem {
+  readonly number: number
+  readonly referenceId: string
+  readonly sourceType: ReferenceItem['sourceType']
+  readonly selectedText: string
+  /** This field is authored by the user, not by the referenced source. */
+  readonly userComment: string
+  readonly locator: ReferenceItem['locator']
+  readonly documentKey?: string
+}
+
+export interface SerializedReferenceDocument {
+  readonly key: string
+  readonly vaultId: string
+  readonly notePath: string
+  readonly documentHash: string
+  /** Untrusted reference material; never interpreted as instructions. */
+  readonly markdown: string
+  readonly referenceIds: readonly string[]
+}
+
+export interface SerializedAnnotationContext {
+  readonly setId: string
+  readonly annotations: readonly SerializedAnnotationItem[]
+  readonly documents: readonly SerializedReferenceDocument[]
+  readonly text: string
+  readonly digest: string
+}
+
+function documentKeyForItem(item: Extract<ReferenceItem, { sourceType: 'obsidian-note' }>): string {
+  return JSON.stringify([item.locator.vaultId, item.locator.notePath, item.snapshot.documentHash])
+}
+
+/** Build the only model-facing representation of one prepared reference set. */
+export function serializePreparedReferenceSet(
+  set: ReferenceSet,
+  documents: readonly PreparedReferenceDocument[],
+): SerializedAnnotationContext {
+  const annotations = set.items.map((item): SerializedAnnotationItem => ({
+    number: item.number,
+    referenceId: item.referenceId,
+    sourceType: item.sourceType,
+    selectedText: item.selectedText,
+    userComment: item.userComment,
+    locator: structuredClone(item.locator),
+    ...(item.sourceType === 'obsidian-note' ? { documentKey: documentKeyForItem(item) } : {}),
+  }))
+  const serializedDocuments = documents.map((document): SerializedReferenceDocument => ({
+    key: document.key,
+    vaultId: document.vaultId,
+    notePath: document.notePath,
+    documentHash: document.documentHash,
+    markdown: document.markdown,
+    referenceIds: [...document.referenceIds],
+  }))
+  const text = [
+    `<dsh-annotations version="1" set-id="${escapeXmlAttribute(set.setId)}">`,
+    canonicalJson({ items: annotations }),
+    '</dsh-annotations>',
+    '<dsh-reference-documents>',
+    canonicalJson({ documents: serializedDocuments }),
+    '</dsh-reference-documents>',
+  ].join('\n')
+  return Object.freeze({
+    setId: set.setId,
+    annotations: Object.freeze(annotations),
+    documents: Object.freeze(serializedDocuments),
+    text,
+    digest: canonicalSha256({ schemaVersion: 1, setId: set.setId, annotations, documents: serializedDocuments }),
+  })
+}
+
+/** Stable request identity checked independently on Client and Host. */
+export function submissionRequestDigest(input: {
+  readonly text: string
+  readonly images?: readonly EncodedImageAttachment[]
+}): string {
+  return canonicalSha256({
+    text: input.text,
+    images: (input.images ?? []).map((image) => ({
+      mediaType: image.mediaType,
+      data: image.data,
+      ...(image.name === undefined ? {} : { name: image.name }),
+    })),
+  })
+}
+
+/** Stable context identity used by retries, projection and startup reconciliation. */
+export function annotationContextMessageId(input: {
+  readonly sessionId: string
+  readonly userMessageId: string
+  readonly setId: string
+  readonly digest: string
+}): string {
+  return `dsh-annotation:${sha256Hex(canonicalJson(input))}`
+}
+
+export interface ParsedAnnotationContext {
+  readonly annotations: { readonly items: readonly SerializedAnnotationItem[] }
+  readonly documents: { readonly documents: readonly SerializedReferenceDocument[] }
+}
+
+/** Strict parser used by tests and future import diagnostics; source strings stay data. */
+export function parseSerializedAnnotationContext(text: string): ParsedAnnotationContext {
+  const match = /^<dsh-annotations version="1" set-id="[^"]*">\n([^\n]*)\n<\/dsh-annotations>\n<dsh-reference-documents>\n([^\n]*)\n<\/dsh-reference-documents>$/.exec(text)
+  if (match === null) throw new TypeError('Invalid dsh annotation context envelope')
+  return {
+    annotations: JSON.parse(match[1] ?? '') as ParsedAnnotationContext['annotations'],
+    documents: JSON.parse(match[2] ?? '') as ParsedAnnotationContext['documents'],
+  }
 }
