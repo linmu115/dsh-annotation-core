@@ -144,6 +144,7 @@ describe('AnnotationStore', () => {
       committedAt: 3,
       userMessageId: 'message-1',
       userAnchorId: 'message-1',
+      userTextHash: 'sha256:1111111111111111111111111111111111111111111111111111111111111111',
     })
     expect(completed.set.state).toBe('sent')
     expect(store.readPendingState('session').pendingCount).toBe(0)

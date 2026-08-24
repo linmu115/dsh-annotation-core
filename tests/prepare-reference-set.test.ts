@@ -98,6 +98,16 @@ describe('prepareReferenceSet', () => {
     if (result.kind === 'blocked') expect(result.details[0]?.issue).toBe(code)
   })
 
+  it('accepts a typed failure from an independently bundled consumer adapter', async () => {
+    class ConsumerSourceError extends Error {
+      readonly code = 'source-changed' as const
+    }
+    const result = await prepareReferenceSet(noteSet(), registry(async () => {
+      throw new ConsumerSourceError('consumer detected changed source')
+    }), { budget: { contextWindow: 100_000, countTokens: () => 1 } })
+    expect(result).toMatchObject({ kind: 'blocked', reason: 'source-changed' })
+  })
+
   it('uses the captured snapshot while offline', async () => {
     const original = noteSet()
     const result = await prepareReferenceSet(original, registry(async () => {

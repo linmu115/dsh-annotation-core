@@ -68,6 +68,7 @@ describe('reference set state machine', () => {
       committedAt: 200,
       userMessageId: 'user-message-1',
       userAnchorId: 'user-node-1',
+      userTextHash: 'sha256:1111111111111111111111111111111111111111111111111111111111111111',
     })
     expect(sent).toMatchObject({ state: 'sent', revision: 3, committedAt: 200 })
   })
@@ -107,6 +108,7 @@ describe('reference set state machine', () => {
       committedAt: 200,
       userMessageId: 'user-message-3',
       userAnchorId: 'user-node-3',
+      userTextHash: 'sha256:1111111111111111111111111111111111111111111111111111111111111111',
     })
     expect(() => removeReference(sent, 'reference-1', 6)).toThrow(/pending/)
     expect(sent.items.map((item) => item.number)).toEqual([1, 2])
@@ -140,6 +142,7 @@ describe('reference set state machine', () => {
       committedAt: 200,
       userMessageId: 'user-message-history',
       userAnchorId: 'user-node-history',
+      userTextHash: 'sha256:1111111111111111111111111111111111111111111111111111111111111111',
     })
     const historicalSnapshot = JSON.stringify(sent)
 

@@ -59,7 +59,10 @@ export class BacklinkOutbox {
   private async commit(sessionId: string, job: BacklinkJob): Promise<void> {
     const set = this.store.readSentSet(sessionId, job.setId)
     const item = set?.items.find((candidate) => candidate.referenceId === job.referenceId)
-    if (set === undefined || item === undefined || set.userMessageId === undefined || set.userAnchorId === undefined) {
+    if (
+      set === undefined || item === undefined || set.userMessageId === undefined
+      || set.userAnchorId === undefined || set.userTextHash === undefined
+    ) {
       await this.record(sessionId, job, { error: 'Sent reference binding is incomplete' })
       return
     }
@@ -71,6 +74,7 @@ export class BacklinkOutbox {
         referenceId: item.referenceId,
         userMessageId: set.userMessageId,
         userAnchorId: set.userAnchorId,
+        userTextHash: set.userTextHash,
         item,
       })
       if (receipt === undefined) throw new Error(`No backlink writer is registered for ${item.sourceType}`)

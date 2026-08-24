@@ -111,6 +111,25 @@ function failureIssue(error: SourcePreparationError): SourceBudgetIssue {
   }
 }
 
+function normalizePreparationFailure(error: unknown): SourcePreparationError {
+  if (error instanceof SourcePreparationError) return error
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = (error as { code?: unknown }).code
+    if (
+      code === 'offline' || code === 'online-refresh-failed' || code === 'source-missing' ||
+      code === 'source-changed' || code === 'protocol-mismatch'
+    ) {
+      const message = error instanceof Error ? error.message : String(code)
+      return new SourcePreparationError(code, message, { cause: error })
+    }
+  }
+  return new SourcePreparationError(
+    'online-refresh-failed',
+    error instanceof Error ? error.message : String(error),
+    { cause: error },
+  )
+}
+
 export async function prepareReferenceSet(
   set: ReferenceSet,
   registry: HostSourceRegistry,
@@ -150,9 +169,7 @@ export async function prepareReferenceSet(
       preparedItems.push(validatePrepared(item, prepared))
     } catch (error) {
       if (signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error
-      const failure = error instanceof SourcePreparationError
-        ? error
-        : new SourcePreparationError('online-refresh-failed', error instanceof Error ? error.message : String(error), { cause: error })
+      const failure = normalizePreparationFailure(error)
       if (failure.code === 'offline') {
         preparedItems.push(offlineSnapshot(item))
       } else if (failure.code === 'online-refresh-failed') {

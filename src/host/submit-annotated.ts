@@ -4,6 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { beginReferenceCommit } from '../domain/state-machine.ts'
 import {
   annotationContextMessageId,
+  selectedTextHash,
   serializePreparedReferenceSet,
   submissionRequestDigest,
 } from '../protocol/index.ts'
@@ -172,6 +173,7 @@ export class AnnotationSubmissionCoordinator {
       userMessageId: message.id,
       contextMessageId,
       contextDigest: serialized.digest,
+      userTextHash: selectedTextHash(input.text),
       preparedSet,
       createdAt: input.createdAt,
     })

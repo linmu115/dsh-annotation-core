@@ -55,6 +55,7 @@ describe('annotation core client bundle contract', () => {
       '@deepseek-ai/cordis',
       '@deepseek-ai/dsh-client-runtime/client',
       'react',
+      'react-dom',
       'react/jsx-runtime',
     ]))
     expect(source).toContain('data-plugin-css')

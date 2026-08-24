@@ -116,6 +116,7 @@ describe('session durability settlement', () => {
       expectedRevision: begun.revision, clientSubmissionId: 'submission',
       requestDigest: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       userMessageId: user.id, contextMessageId: contextId, contextDigest: serialized.digest,
+      userTextHash: 'sha256:2222222222222222222222222222222222222222222222222222222222222222',
       preparedSet: begun.set!, createdAt: 3,
     })
     session.append('user/message', user, { surfaceOp: 'append' })

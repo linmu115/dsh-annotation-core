@@ -8,6 +8,7 @@ export interface SentReferenceBinding {
   readonly referenceId: string
   readonly userMessageId: string
   readonly userAnchorId: string
+  readonly userTextHash: string
   readonly item: ReferenceItem
 }
 

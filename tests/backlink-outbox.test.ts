@@ -27,6 +27,7 @@ async function sentStore() {
     expectedRevision: begun.revision,
     clientSubmissionId: 'submission', requestDigest: digest,
     userMessageId: 'user', contextMessageId: 'context', contextDigest: digest,
+    userTextHash: 'sha256:2222222222222222222222222222222222222222222222222222222222222222',
     preparedSet: begun.set!, createdAt: 3,
   })
   await store.finalizeDurableSubmission('session', {
@@ -47,6 +48,9 @@ describe('durable backlink outbox', () => {
     const outbox = new BacklinkOutbox(store, registry, () => 5)
     await outbox.runPending('session')
     expect(commitBacklink).toHaveBeenCalledTimes(1)
+    expect(commitBacklink).toHaveBeenCalledWith(expect.objectContaining({
+      userTextHash: 'sha256:2222222222222222222222222222222222222222222222222222222222222222',
+    }))
     expect(store.listBacklinkJobs('session')[0]).toMatchObject({ state: 'written', attempts: 1, receipt: { revision: '1' } })
     expect(store.readSentSet('session', 'set')?.state).toBe('sent')
     expect(store.readAdmission('session', 'submission')?.state).toBe('durable')

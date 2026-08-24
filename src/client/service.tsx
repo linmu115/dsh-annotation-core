@@ -87,7 +87,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     }
   }
 
-  async addReference(sessionId: string, source: ReferenceSource, options: { operationId?: string; signal?: AbortSignal } = {}) {
+  async addReference(sessionId: string, source: ReferenceSource, options: { operationId?: string; referenceId?: string; signal?: AbortSignal } = {}) {
     const remote = this.remote(sessionId); const pending = unwrapRemote(await remote.readPending()); const operationId = options.operationId ?? id('operation')
     if (options.signal?.aborted) {
       unwrapRemote(await remote.fenceReferenceOperation({ expectedRevision: pending.revision, operationId }))
@@ -95,7 +95,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     }
     const result = unwrapRemote(await remote.addReference({
       expectedRevision: pending.revision, operationId, setId: pending.pending?.setId ?? id('set'),
-      referenceId: id('reference'), source, createdAt: Date.now(),
+      referenceId: options.referenceId ?? id('reference'), source, createdAt: Date.now(),
     }))
     return { setId: result.setId, referenceId: result.referenceId, created: result.created }
   }

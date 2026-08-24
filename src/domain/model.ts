@@ -43,6 +43,7 @@ export interface ReferenceSet {
   readonly committedAt?: number
   readonly userMessageId?: string
   readonly userAnchorId?: string
+  readonly userTextHash?: string
 }
 
 export interface CreateReferenceSetInput {
@@ -63,6 +64,7 @@ export interface CompleteReferenceCommitInput {
   readonly committedAt: number
   readonly userMessageId: string
   readonly userAnchorId: string
+  readonly userTextHash: string
 }
 
 export interface ReuseReferenceInput {

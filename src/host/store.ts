@@ -66,6 +66,7 @@ export const ReferenceSetSchema = z.object({
   committedAt: NonNegativeIntegerSchema.optional(),
   userMessageId: NonEmptyStringSchema.optional(),
   userAnchorId: NonEmptyStringSchema.optional(),
+  userTextHash: Sha256DigestSchema.optional(),
 }).strict()
 
 export type ReferenceOperationState = 'canceled' | 'committed' | 'failed'
@@ -106,6 +107,7 @@ export interface AdmissionRecord {
   readonly referenceRevision?: number | undefined
   readonly userMessageId?: string | undefined
   readonly contextMessageId?: string | undefined
+  readonly userTextHash?: string | undefined
   readonly lastError?: string | undefined
   readonly createdAt: number
   readonly updatedAt: number
@@ -120,6 +122,7 @@ const AdmissionRecordSchema = z.object({
   referenceRevision: NonNegativeIntegerSchema.optional(),
   userMessageId: NonEmptyStringSchema.optional(),
   contextMessageId: NonEmptyStringSchema.optional(),
+  userTextHash: Sha256DigestSchema.optional(),
   lastError: z.string().optional(),
   createdAt: NonNegativeIntegerSchema,
   updatedAt: NonNegativeIntegerSchema,
@@ -132,6 +135,7 @@ export interface SubmissionJournalEntry {
   readonly setId?: string | undefined
   readonly contextMessageId?: string | undefined
   readonly contextDigest?: string | undefined
+  readonly userTextHash?: string | undefined
   readonly preparedSet?: ReferenceSet | undefined
   readonly createdAt: number
 }
@@ -143,6 +147,7 @@ const SubmissionJournalEntrySchema = z.object({
   setId: NonEmptyStringSchema.optional(),
   contextMessageId: NonEmptyStringSchema.optional(),
   contextDigest: Sha256DigestSchema.optional(),
+  userTextHash: Sha256DigestSchema.optional(),
   preparedSet: ReferenceSetSchema.optional(),
   createdAt: NonNegativeIntegerSchema,
 }).strict()
@@ -628,6 +633,7 @@ export class AnnotationStore {
     committedAt: number
     userMessageId: string
     userAnchorId: string
+    userTextHash: string
   }): Promise<{ revision: number; set: ReferenceSet }> {
     return this.mutate(sessionId, (aggregate) => {
       assertExpected(aggregate, input.expectedRevision)
@@ -638,6 +644,7 @@ export class AnnotationStore {
         committedAt: input.committedAt,
         userMessageId: input.userMessageId,
         userAnchorId: input.userAnchorId,
+        userTextHash: input.userTextHash,
       })
       const next: SessionAggregate = {
         ...aggregate,
@@ -802,17 +809,22 @@ export class AnnotationStore {
     userMessageId: string
     contextMessageId?: string
     contextDigest?: string
+    userTextHash?: string
     preparedSet?: ReferenceSet
     createdAt: number
   }): Promise<{ revision: number; admission: AdmissionRecord; journal: SubmissionJournalEntry | undefined; created: boolean }> {
     Sha256DigestSchema.parse(input.requestDigest)
     if (input.contextDigest !== undefined) Sha256DigestSchema.parse(input.contextDigest)
+    if (input.userTextHash !== undefined) Sha256DigestSchema.parse(input.userTextHash)
     return this.mutate<{ revision: number; admission: AdmissionRecord; journal: SubmissionJournalEntry | undefined; created: boolean }>(sessionId, (aggregate) => {
       const admission = aggregate.admissions[input.clientSubmissionId]
       if (admission === undefined) throw new RangeError('Submission admission does not exist')
       if (admission.requestDigest !== input.requestDigest) throw new AdmissionConflictError(input.clientSubmissionId)
       if (admission.userMessageId !== undefined) {
-        if (admission.userMessageId !== input.userMessageId || admission.contextMessageId !== input.contextMessageId) {
+        if (
+          admission.userMessageId !== input.userMessageId || admission.contextMessageId !== input.contextMessageId
+          || admission.userTextHash !== input.userTextHash
+        ) {
           throw new AdmissionConflictError(input.clientSubmissionId)
         }
         const existingJournal = aggregate.submissionJournal[input.userMessageId]
@@ -825,10 +837,18 @@ export class AnnotationStore {
       assertExpected(aggregate, input.expectedRevision)
       if (admission.state !== 'prepared') throw new Error(`Admission cannot be enqueued from ${admission.state}`)
       const annotated = admission.kind === 'annotated'
-      if (annotated && (input.preparedSet === undefined || input.contextMessageId === undefined || input.contextDigest === undefined)) {
-        throw new TypeError('Annotated enqueue requires prepared set, context ID and context digest')
+      if (
+        annotated && (
+          input.preparedSet === undefined || input.contextMessageId === undefined
+          || input.contextDigest === undefined || input.userTextHash === undefined
+        )
+      ) {
+        throw new TypeError('Annotated enqueue requires prepared set, context ID, context digest and user text hash')
       }
-      if (!annotated && (input.preparedSet !== undefined || input.contextMessageId !== undefined || input.contextDigest !== undefined)) {
+      if (!annotated && (
+        input.preparedSet !== undefined || input.contextMessageId !== undefined
+        || input.contextDigest !== undefined || input.userTextHash !== undefined
+      )) {
         throw new TypeError('Plain enqueue cannot carry annotation context')
       }
       const parsedPrepared = input.preparedSet === undefined ? undefined : ReferenceSetSchema.parse(input.preparedSet)
@@ -848,6 +868,7 @@ export class AnnotationStore {
         setId: admission.setId,
         contextMessageId: input.contextMessageId,
         contextDigest: input.contextDigest,
+        userTextHash: input.userTextHash,
         preparedSet: clone(parsedPrepared as ReferenceSet),
         createdAt: input.createdAt,
       } : undefined
@@ -856,6 +877,7 @@ export class AnnotationStore {
         state: 'enqueued',
         userMessageId: input.userMessageId,
         ...(input.contextMessageId === undefined ? {} : { contextMessageId: input.contextMessageId }),
+        ...(input.userTextHash === undefined ? {} : { userTextHash: input.userTextHash }),
         updatedAt: input.createdAt,
       }
       const next: SessionAggregate = {
@@ -953,11 +975,13 @@ export class AnnotationStore {
           throw new Error('Annotated durability requires the exact persisted context event and prepared set')
         }
         const prepared = journal.preparedSet
+        if (journal.userTextHash === undefined) throw new Error('Annotated journal has no user text hash')
         sent = completeReferenceCommit(prepared, {
           expectedRevision: prepared.revision,
           committedAt: input.committedAt,
           userMessageId: input.userMessageId,
           userAnchorId: input.userMessageId,
+          userTextHash: journal.userTextHash,
         })
         pending = undefined
         for (const item of sent.items) {

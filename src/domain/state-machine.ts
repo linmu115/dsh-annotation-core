@@ -183,12 +183,14 @@ export function completeReferenceCommit(set: ReferenceSet, input: CompleteRefere
   assertRevision(set, input.expectedRevision)
   assertIdentifier(input.userMessageId, 'userMessageId')
   assertIdentifier(input.userAnchorId, 'userAnchorId')
+  if (!/^sha256:[a-f0-9]{64}$/.test(input.userTextHash)) throw new TypeError('userTextHash must be a SHA-256 digest')
   if (!Number.isInteger(input.committedAt) || input.committedAt < 0) throw new TypeError('committedAt must be a non-negative integer')
   return withRevision(set, {
     state: 'sent',
     committedAt: input.committedAt,
     userMessageId: input.userMessageId,
     userAnchorId: input.userAnchorId,
+    userTextHash: input.userTextHash,
   })
 }
 
