@@ -1,0 +1,6 @@
+# dsh-annotation-core bundle patch for the official DSH web profile.
+- insert:
+    - id: annotation-core
+      name: 'dsh-annotation-core'
+      config:
+        profileId: web
