@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { probeRc2Dynamic } from '../scripts/probe-rc2-dynamic.mts'
+import { resolveRc2RuntimeRoot } from '../scripts/rc2-runtime-root.mts'
 
-const runtimeRoot = 'D:\\AI\\DeepSeek-Harness\\runtime-0.1.1-rc.2'
+const runtimeRoot = resolveRc2RuntimeRoot()
 
 describe('official DSH rc.2 dynamic integration boundary', () => {
   it('mounts the real conversation projection and restores the exact generic row', async () => {

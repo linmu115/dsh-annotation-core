@@ -25,6 +25,7 @@ Acceptance criteria:
 - installation does not require a local path dependency;
 - `pnpm test` builds the bundle before bundle-contract tests run;
 - all tests pass;
+- rc.2 probes use the official packages installed by the lockfile, or an assembled runtime selected with `DSH_RC2_RUNTIME_ROOT`;
 - the packed file list contains every path declared by `main`, `types`, `exports`, and `files`;
 - the packed registry artifact contains prebuilt output and remains usable when consumer install scripts are disabled.
 

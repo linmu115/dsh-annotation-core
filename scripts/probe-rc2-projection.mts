@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { assertRc2RuntimeRoot } from './rc2-runtime-root.mts'
 
 export interface Rc2ProbeResult {
   preStepCanAppendUserContext: boolean
@@ -94,7 +95,6 @@ interface ImageRef {
 }
 
 const REQUIRED_PACKAGES = [
-  '@deepseek-ai/dsh',
   '@deepseek-ai/dsh-agent',
   '@deepseek-ai/dsh-agent-loop',
   '@deepseek-ai/dsh-attachment',
@@ -200,12 +200,11 @@ function includesAll(source: string, fragments: readonly string[]): boolean {
  * below the operating-system temporary directory; it is removed before return.
  */
 export async function probeRc2(runtimeRootInput: string): Promise<Rc2ProbeResult> {
-  const runtimeRoot = resolve(runtimeRootInput)
+  const { runtimeRoot, runtimePackage, runtimeVersion } = await assertRc2RuntimeRoot(
+    runtimeRootInput,
+    'rc.2 probe',
+  )
   const runtimePackagePath = join(runtimeRoot, 'package.json')
-  const runtimePackage = await readJson(runtimePackagePath)
-  if (runtimePackage.name !== 'dsh-official-runtime-0.1.1-rc.2') {
-    throw new Error(`rc.2 probe: unexpected runtime package ${String(runtimePackage.name)}`)
-  }
 
   const packageVersions: Record<string, string> = {}
   for (const packageName of REQUIRED_PACKAGES) {
@@ -516,9 +515,7 @@ export async function probeRc2(runtimeRootInput: string): Promise<Rc2ProbeResult
       }) === null,
       runtimeWritesOutsideTemporaryProfile: [...outOfProfileWrites, ...changedRuntimeFiles],
       observed: {
-        runtimeVersion: String(runtimePackage.dependencies instanceof Object
-          ? (runtimePackage.dependencies as Record<string, unknown>)['@deepseek-ai/dsh']
-          : 'unknown'),
+        runtimeVersion,
         packageVersions,
         userMessageId: userMessage.id,
         contextKey,
