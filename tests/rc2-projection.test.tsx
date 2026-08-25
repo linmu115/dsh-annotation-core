@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { probeRc2 } from '../scripts/probe-rc2-projection.mts'
+import { resolveRc2RuntimeRoot } from '../scripts/rc2-runtime-root.mts'
 
-const runtimeRoot = 'D:\\AI\\DeepSeek-Harness\\runtime-0.1.1-rc.2'
+const runtimeRoot = resolveRc2RuntimeRoot()
 
 describe('official DSH rc.2 extension boundary', () => {
   it('exposes the rc.2 seams required by annotation core', async () => {

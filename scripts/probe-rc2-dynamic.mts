@@ -13,6 +13,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { assertRc2RuntimeRoot } from './rc2-runtime-root.mts'
 
 import * as cordis from '@deepseek-ai/cordis'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -754,11 +755,7 @@ async function probeInput(runtimeRoot: string): Promise<InputProbe> {
 }
 
 async function runProbe(runtimeRootInput: string): Promise<Rc2DynamicProbeResult> {
-  const runtimeRoot = resolve(runtimeRootInput)
-  const runtimePackage = JSON.parse(await readFile(join(runtimeRoot, 'package.json'), 'utf8')) as { name?: string }
-  if (runtimePackage.name !== 'dsh-official-runtime-0.1.1-rc.2') {
-    throw new Error(`dynamic rc.2 probe: unexpected runtime package ${String(runtimePackage.name)}`)
-  }
+  const { runtimeRoot } = await assertRc2RuntimeRoot(runtimeRootInput, 'dynamic rc.2 probe')
   const harnessRoot = dirname(runtimeRoot)
   const liveWebRoot = join(harnessRoot, 'home', 'profiles', 'web')
   const runtimeBefore = await hashTree(runtimeRoot)
