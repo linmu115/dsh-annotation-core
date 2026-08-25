@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 
 import type { ReferenceItem, ReferenceSet } from '../domain/model.ts'
@@ -58,43 +58,87 @@ function sourceDescription(item: ReferenceItem): string {
 export function ReferenceDialog({ controller, sources, updateComment, remove, reuse, retryBacklink }: ReferenceDialogProps) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const closeRef = useRef<HTMLButtonElement>(null)
-  useEffect(() => { if (snapshot.open) closeRef.current?.focus() }, [snapshot.open])
+  const commentRef = useRef<HTMLTextAreaElement>(null)
+  const [activeReferenceId, setActiveReferenceId] = useState<string>()
+  const referenceIds = snapshot.set?.items.map((item) => item.referenceId).join('\u0000') ?? ''
+  useEffect(() => {
+    if (!snapshot.open || snapshot.set === undefined) return
+    const preferred = snapshot.focusReferenceId !== undefined && snapshot.set.items.some((item) => item.referenceId === snapshot.focusReferenceId)
+      ? snapshot.focusReferenceId
+      : snapshot.set.items[0]?.referenceId
+    setActiveReferenceId(preferred)
+  }, [snapshot.open, snapshot.set?.setId, snapshot.focusReferenceId, referenceIds])
+  useEffect(() => {
+    if (!snapshot.open) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      controller.close()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [controller, snapshot.open])
   if (!snapshot.open || snapshot.set === undefined) return null
   const set = snapshot.set
-  const dialog = <div className="dshAnnotationDialogBackdrop" role="presentation" onMouseDown={(event) => {
-    if (event.currentTarget === event.target) controller.close()
-  }}>
-    <section className="dshAnnotationDialog" role="dialog" aria-modal="true" aria-label={`${set.items.length} 条注释`}>
+  const activeItem = set.items.find((item) => item.referenceId === activeReferenceId)
+    ?? set.items.find((item) => item.referenceId === snapshot.focusReferenceId)
+    ?? set.items[0]
+  if (activeItem === undefined) return null
+  const source = sources.forItem(activeItem)
+  const dialog = <div className="dshAnnotationFloatingLayer">
+    <section className="dshAnnotationDialog" data-annotation-floating-window role="dialog" aria-modal="false" aria-label={`${set.items.length} 条注释`}>
       <header className="dshAnnotationDialogHeader">
-        <strong>{set.items.length} 条注释</strong>
-        <button ref={closeRef} type="button" onClick={() => controller.close()} aria-label="关闭注释详情">×</button>
+        <div className="dshAnnotationDialogTitle">
+          <span className="dshAnnotationDialogIcon" aria-hidden="true">✦</span>
+          <span><strong>{set.items.length} 条注释</strong><small>引用详情与补充说明</small></span>
+        </div>
+        <button className="dshAnnotationDialogClose" ref={closeRef} type="button" onClick={() => controller.close()} aria-label="关闭注释详情">×</button>
       </header>
-      <div className="dshAnnotationDialogBody">
-        {set.items.map((item) => <article
-          className="dshAnnotationDetail"
-          data-annotation-reference={item.referenceId}
-          data-focused={snapshot.focusReferenceId === item.referenceId || undefined}
+      {set.items.length > 1 && <nav className="dshAnnotationDialogTabs" aria-label="选择注释">
+        {set.items.map((item) => <button
+          className="dshAnnotationDialogTab"
+          type="button"
+          aria-label={`查看注释 ${item.number}`}
+          aria-pressed={item.referenceId === activeItem.referenceId}
+          onClick={() => setActiveReferenceId(item.referenceId)}
           key={item.referenceId}
+        >{item.number}</button>)}
+      </nav>}
+      <div className="dshAnnotationDialogBody">
+        <article
+          className="dshAnnotationDetail"
+          data-annotation-reference={activeItem.referenceId}
+          data-focused={snapshot.focusReferenceId === activeItem.referenceId || undefined}
+          key={activeItem.referenceId}
         >
-          <h3>注释 {item.number}</h3>
-          <p className="dshAnnotationSource">{sourceDescription(item)}</p>
-          <div className="dshAnnotationSelected">{item.selectedText}</div>
-          <label>补充注解
+          <div className="dshAnnotationDetailHeading">
+            <span className="dshAnnotationNumber">{activeItem.number}</span>
+            <span className="dshAnnotationSource">{sourceDescription(activeItem)}</span>
+          </div>
+          <blockquote className="dshAnnotationSelected">{activeItem.selectedText}</blockquote>
+          <label className="dshAnnotationCommentField">
+            <span className="dshAnnotationCommentLabel"><strong>补充说明</strong>{snapshot.editable && <small>失焦时自动保存</small>}</span>
             {snapshot.editable
-              ? <textarea className="dshAnnotationComment" defaultValue={item.userComment} onBlur={(event) => {
-                  if (event.currentTarget.value !== item.userComment) void updateComment(item.referenceId, event.currentTarget.value)
-                }} />
-              : <div className="dshAnnotationSelected">{item.userComment || '无'}</div>}
+              ? <textarea
+                  ref={commentRef}
+                  className="dshAnnotationComment"
+                  defaultValue={activeItem.userComment}
+                  placeholder="写下希望模型特别关注、比较或解释的内容……"
+                  onBlur={(event) => {
+                    if (event.currentTarget.value !== activeItem.userComment) void updateComment(activeItem.referenceId, event.currentTarget.value)
+                  }}
+                />
+              : <div className="dshAnnotationCommentReadOnly">{activeItem.userComment || '没有补充说明'}</div>}
           </label>
           <div className="dshAnnotationActions">
-            {sources.forItem(item) !== undefined && <button type="button" onClick={() => void sources.forItem(item)?.openSource(item)}>打开来源</button>}
-            {sources.forItem(item)?.copySourceLink !== undefined && <button type="button" onClick={() => void sources.forItem(item)?.copySourceLink?.(item).then((text) => navigator.clipboard.writeText(text))}>复制来源链接</button>}
+            {source !== undefined && <button className="dshAnnotationAction" type="button" onClick={() => void source.openSource(activeItem)}>打开来源</button>}
+            {source?.copySourceLink !== undefined && <button className="dshAnnotationAction" type="button" onClick={() => void source.copySourceLink?.(activeItem).then((text) => navigator.clipboard.writeText(text))}>复制来源链接</button>}
             {snapshot.editable
-              ? <button type="button" onClick={() => void remove(item.referenceId)}>删除</button>
-              : <button type="button" onClick={() => void reuse(item.referenceId)}>重新添加到当前提问</button>}
-            {!snapshot.editable && item.backlinkState === 'failed' && <button type="button" onClick={() => void retryBacklink(set.setId, item.referenceId)}>重试回链</button>}
+              ? <button className="dshAnnotationAction danger" type="button" onClick={() => void remove(activeItem.referenceId)}>删除</button>
+              : <button className="dshAnnotationAction primary" type="button" onClick={() => void reuse(activeItem.referenceId)}>重新添加到当前提问</button>}
+            {!snapshot.editable && activeItem.backlinkState === 'failed' && <button className="dshAnnotationAction" type="button" onClick={() => void retryBacklink(set.setId, activeItem.referenceId)}>重试回链</button>}
           </div>
-        </article>)}
+        </article>
       </div>
     </section>
   </div>

@@ -1,6 +1,6 @@
 {
   "name": "dsh-annotation-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared annotation state, submission, prompt, and UI core for DeepSeek Harness plugins.",
   "type": "module",
   "license": "MIT",
