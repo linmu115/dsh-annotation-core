@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('annotation core client bundle contract', () => {
-  it('publishes the complete 0.1.0 core API with official rc.2 peers', async () => {
+  it('publishes the complete 0.1.1 core API with official rc.2 peers', async () => {
     const pkg = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8')) as {
       version: string
       exports: Record<string, { types?: string; default?: string } | string>
@@ -14,7 +14,7 @@ describe('annotation core client bundle contract', () => {
       dsh: { bundle: { patch: string }; client: { inject: string[]; platform: string } }
       dshKnowledge: { annotationProtocolVersion: number }
     }
-    expect(pkg.version).toBe('0.1.0')
+    expect(pkg.version).toBe('0.1.1')
     expect(Object.keys(pkg.exports)).toEqual(expect.arrayContaining([
       '.', './client', './protocol', './client-api', './host-api', './typert', './remote', './package.json',
     ]))
