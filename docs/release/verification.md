@@ -26,6 +26,8 @@ Acceptance criteria:
 - `pnpm test` builds the bundle before bundle-contract tests run;
 - all tests pass;
 - the packed file list contains every path declared by `main`, `types`, `exports`, and `files`;
-- consumer installation does not run `prepare`.
+- the packed registry artifact contains prebuilt output and remains usable when consumer install scripts are disabled.
+
+The repository retains `prepare` only so a development dependency pinned to a full Git commit can build its untracked `lib/` output. Registry consumers use the prebuilt tarball and do not depend on that lifecycle script.
 
 The release workflow repeats this gate before npm publication. Failure-isolation, hot-reload, removal, and current Workshop-baseline evidence remain `null` until the Workshop harness records them.

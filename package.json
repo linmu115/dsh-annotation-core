@@ -115,6 +115,7 @@
   },
   "scripts": {
     "build": "node -e \"fs.rmSync('lib',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && tsdown --config-loader unrun --config tsdown.config.ts",
+    "prepare": "pnpm build",
     "pretest": "pnpm build",
     "prepack": "pnpm build",
     "typecheck": "tsc --noEmit",
