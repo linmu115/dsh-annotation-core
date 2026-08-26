@@ -6,6 +6,7 @@ import type { ReferenceSource } from '../protocol/index.ts'
 import type { AnnotationStore } from '../host/store.ts'
 import { AggregateRevisionConflictError } from '../host/store.ts'
 import type { BacklinkOutbox } from '../host/backlink-outbox.ts'
+import type { PendingDiscardOutbox } from '../host/pending-discard-outbox.ts'
 import type {
   AnnotationSubmissionCoordinator,
   SubmitAnnotatedInput,
@@ -68,6 +69,7 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
     readonly store: AnnotationStore,
     readonly submissions?: AnnotationSubmissionCoordinator,
     readonly outbox?: BacklinkOutbox,
+    readonly discardOutbox?: PendingDiscardOutbox,
   ) {
     super(ctx, 'annotationCore')
   }
@@ -87,6 +89,7 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
 
   async discardPendingOperation(agent: Agent, request: DiscardPendingOperationRequest): Promise<void> {
     await this.store.discardPendingOperation(agent.id, request)
+    this.discardOutbox?.kick(agent.id)
   }
 
   async updateComment(agent: Agent, request: UpdateCommentRequest): Promise<void> {
@@ -95,6 +98,7 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
 
   async removeReference(agent: Agent, request: RemoveReferenceRequest): Promise<void> {
     await this.store.removeReference(agent.id, request)
+    this.discardOutbox?.kick(agent.id)
   }
 
   reuseReference(agent: Agent, request: ReuseReferenceRequest) {

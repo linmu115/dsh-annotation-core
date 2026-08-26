@@ -192,6 +192,26 @@ const BacklinkJobSchema = z.object({
   updatedAt: NonNegativeIntegerSchema,
 }).strict()
 
+export interface PendingDiscardJob {
+  readonly referenceId: string
+  readonly state: 'pending'
+  readonly item: ReferenceItem
+  readonly attempts: number
+  readonly lastError?: string | undefined
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
+const PendingDiscardJobSchema = z.object({
+  referenceId: NonEmptyStringSchema,
+  state: z.literal('pending'),
+  item: ReferenceItemSchema,
+  attempts: NonNegativeIntegerSchema,
+  lastError: z.string().optional(),
+  createdAt: NonNegativeIntegerSchema,
+  updatedAt: NonNegativeIntegerSchema,
+}).strict()
+
 export interface SessionAggregate {
   readonly schemaVersion: 1
   readonly profileId: string
@@ -204,6 +224,7 @@ export interface SessionAggregate {
   readonly submissionJournal: Readonly<Record<string, SubmissionJournalEntry>>
   readonly flushReconciliations: Readonly<Record<string, FlushReconciliationRecord>>
   readonly backlinkJobs: Readonly<Record<string, BacklinkJob>>
+  readonly pendingDiscardJobs: Readonly<Record<string, PendingDiscardJob>>
 }
 
 export const SessionAggregateSchema = z.object({
@@ -218,6 +239,7 @@ export const SessionAggregateSchema = z.object({
   submissionJournal: z.record(z.string(), SubmissionJournalEntrySchema),
   flushReconciliations: z.record(z.string(), FlushReconciliationRecordSchema),
   backlinkJobs: z.record(z.string(), BacklinkJobSchema),
+  pendingDiscardJobs: z.record(z.string(), PendingDiscardJobSchema).default({}),
 }).strict() as unknown as z.ZodType<SessionAggregate>
 
 export const annotationCoreDomainSpec = defineDomain({
@@ -294,6 +316,33 @@ function emptyAggregate(profileId: string, sessionId: string): SessionAggregate 
     submissionJournal: {},
     flushReconciliations: {},
     backlinkJobs: {},
+    pendingDiscardJobs: {},
+  }
+}
+
+function withPendingDiscardJob(
+  aggregate: SessionAggregate,
+  item: ReferenceItem,
+  now: number,
+): Readonly<Record<string, PendingDiscardJob>> {
+  if (item.sourceType === 'dsh-message') return aggregate.pendingDiscardJobs
+  const existing = aggregate.pendingDiscardJobs[item.referenceId]
+  if (existing !== undefined) {
+    if (canonicalSha256(existing.item) !== canonicalSha256(item)) {
+      throw new Error(`Pending discard identity conflict for ${JSON.stringify(item.referenceId)}`)
+    }
+    return aggregate.pendingDiscardJobs
+  }
+  return {
+    ...aggregate.pendingDiscardJobs,
+    [item.referenceId]: {
+      referenceId: item.referenceId,
+      state: 'pending',
+      item: clone(item),
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    },
   }
 }
 
@@ -497,6 +546,7 @@ export class AnnotationStore {
         return { changed: false, aggregate, value: this.pendingSummary(aggregate) }
       }
       let pending = aggregate.pending
+      let pendingDiscardJobs = aggregate.pendingDiscardJobs
       if (operation.createdReference && pending !== undefined && operation.referenceId !== undefined) {
         const item = pending.items.find((candidate) => candidate.referenceId === operation.referenceId)
         const retainedByAnotherOperation = Object.values(aggregate.operations).some((candidate) =>
@@ -508,6 +558,7 @@ export class AnnotationStore {
         if (!retainedByAnotherOperation && item !== undefined && canonicalSha256(sourceFromItem(item)) === operation.sourceDigest) {
           pending = removeReferenceFromSet(pending, operation.referenceId, pending.revision)
           if (pending.items.length === 0) pending = undefined
+          pendingDiscardJobs = withPendingDiscardJob(aggregate, item, input.now ?? Date.now())
         }
       }
       const revision = aggregate.revision + 1
@@ -518,6 +569,7 @@ export class AnnotationStore {
         revision,
         ...(pending === undefined ? { pending: undefined } : { pending }),
         operations: { ...aggregate.operations, [input.operationId]: canceled },
+        pendingDiscardJobs,
       }
       return { changed: true, aggregate: next, value: this.pendingSummary(next) }
     })
@@ -545,18 +597,76 @@ export class AnnotationStore {
   async removeReference(sessionId: string, input: {
     expectedRevision: number
     referenceId: string
+    now?: number
   }): Promise<{ revision: number; pendingCount: number }> {
     return this.mutate(sessionId, (aggregate) => {
       assertExpected(aggregate, input.expectedRevision)
       if (aggregate.pending === undefined) throw new RangeError('No pending reference set')
+      const removedItem = aggregate.pending.items.find((item) => item.referenceId === input.referenceId)
+      if (removedItem === undefined) throw new RangeError(`Unknown reference ${JSON.stringify(input.referenceId)}`)
       let pending: ReferenceSet | undefined = removeReferenceFromSet(
         aggregate.pending,
         input.referenceId,
         aggregate.pending.revision,
       )
       if (pending.items.length === 0) pending = undefined
-      const next: SessionAggregate = { ...aggregate, revision: aggregate.revision + 1, pending }
+      const next: SessionAggregate = {
+        ...aggregate,
+        revision: aggregate.revision + 1,
+        pending,
+        pendingDiscardJobs: withPendingDiscardJob(aggregate, removedItem, input.now ?? Date.now()),
+      }
       return { changed: true, aggregate: next, value: this.pendingSummary(next) }
+    })
+  }
+
+  listPendingDiscardJobs(sessionId: string): readonly PendingDiscardJob[] {
+    return Object.values(this.read(sessionId).pendingDiscardJobs).map(clone)
+  }
+
+  async recordPendingDiscardFailure(sessionId: string, input: {
+    expectedRevision: number
+    referenceId: string
+    error: string
+    updatedAt: number
+  }): Promise<{ revision: number; job: PendingDiscardJob }> {
+    return this.mutate(sessionId, (aggregate) => {
+      assertExpected(aggregate, input.expectedRevision)
+      const existing = aggregate.pendingDiscardJobs[input.referenceId]
+      if (existing === undefined) throw new RangeError(`Unknown pending discard job ${JSON.stringify(input.referenceId)}`)
+      const job: PendingDiscardJob = {
+        ...existing,
+        attempts: existing.attempts + 1,
+        lastError: input.error,
+        updatedAt: input.updatedAt,
+      }
+      const next: SessionAggregate = {
+        ...aggregate,
+        revision: aggregate.revision + 1,
+        pendingDiscardJobs: { ...aggregate.pendingDiscardJobs, [input.referenceId]: job },
+      }
+      return { changed: true, aggregate: next, value: { revision: next.revision, job } }
+    })
+  }
+
+  async completePendingDiscard(sessionId: string, input: {
+    expectedRevision: number
+    referenceId: string
+  }): Promise<{ revision: number; removed: boolean }> {
+    return this.mutate<{ revision: number; removed: boolean }>(sessionId, (aggregate) => {
+      const existing = aggregate.pendingDiscardJobs[input.referenceId]
+      if (existing === undefined) {
+        return { changed: false, aggregate, value: { revision: aggregate.revision, removed: false } }
+      }
+      assertExpected(aggregate, input.expectedRevision)
+      const pendingDiscardJobs = { ...aggregate.pendingDiscardJobs }
+      delete pendingDiscardJobs[input.referenceId]
+      const next: SessionAggregate = {
+        ...aggregate,
+        revision: aggregate.revision + 1,
+        pendingDiscardJobs,
+      }
+      return { changed: true, aggregate: next, value: { revision: next.revision, removed: true } }
     })
   }
 

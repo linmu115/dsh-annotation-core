@@ -26,6 +26,7 @@ export class SourcePreparationError extends Error {
 
 export class HostSourceRegistry extends Service implements AnnotationCoreHost {
   private readonly adapters = new Map<SourceType, HostSourceAdapter>()
+  private readonly adapterListeners = new Set<(type: SourceType) => void>()
 
   constructor(ctx: Context) {
     super(ctx, 'annotationCoreHost')
@@ -35,11 +36,17 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
     if (this.adapters.has(type)) throw new Error(`Annotation source adapter ${JSON.stringify(type)} is already registered`)
     const owned = this.ctx.effect(() => {
       this.adapters.set(type, adapter)
+      for (const listener of this.adapterListeners) listener(type)
       return () => {
         if (this.adapters.get(type) === adapter) this.adapters.delete(type)
       }
     }, `annotationCoreHost.registerSourceAdapter(${JSON.stringify(type)})`)
     return () => { owned() }
+  }
+
+  onAdapterRegistered(listener: (type: SourceType) => void): () => void {
+    this.adapterListeners.add(listener)
+    return () => { this.adapterListeners.delete(listener) }
   }
 
   require(type: SourceType): HostSourceAdapter {

@@ -4,6 +4,7 @@ import type { Context } from './context-types.ts'
 import { HostSourceRegistry } from './host/source-registry.ts'
 import { openAnnotationStore } from './host/store.ts'
 import { BacklinkOutbox } from './host/backlink-outbox.ts'
+import { PendingDiscardOutbox } from './host/pending-discard-outbox.ts'
 import { registerAnnotationPreStep } from './host/pre-step.ts'
 import { SessionSettlementTracker, StartupSubmissionReconciler } from './host/session-reconcile.ts'
 import { AnnotationSubmissionCoordinator } from './host/submit-annotated.ts'
@@ -37,6 +38,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const opened = await openAnnotationStore(ctx, config.profileId)
   ctx.effect(() => async () => { await opened.close() }, 'annotation-core.domainClose')
   const sources = new HostSourceRegistry(ctx)
+  const discardOutbox = new PendingDiscardOutbox(opened.store, sources)
+  ctx.effect(() => {
+    const unregister = sources.onAdapterRegistered(() => { discardOutbox.kickAll() })
+    discardOutbox.start()
+    return () => {
+      unregister()
+      discardOutbox.dispose()
+    }
+  }, 'annotation-core.pendingDiscardOutbox')
   // Direct unit callers may mount only the durable/read boundary. Normal Cordis
   // loading enforces every declared injection above and therefore always enters
   // the complete transaction runtime.
@@ -45,13 +55,13 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.get('systemPrompt') !== undefined &&
     ctx.get('attachments') !== undefined
   if (!completeRuntime) {
-    new AnnotationCoreRemoteService(ctx, opened.store)
+    new AnnotationCoreRemoteService(ctx, opened.store, undefined, undefined, discardOutbox)
     return
   }
   const settlements = new SessionSettlementTracker(ctx)
   const outbox = new BacklinkOutbox(opened.store, sources)
   const submissions = new AnnotationSubmissionCoordinator(ctx, opened.store, sources, settlements, outbox)
-  new AnnotationCoreRemoteService(ctx, opened.store, submissions, outbox)
+  new AnnotationCoreRemoteService(ctx, opened.store, submissions, outbox, discardOutbox)
   registerAnnotationPreStep(ctx, opened.store)
   registerAnnotationSystemPrompt(ctx)
   new StartupSubmissionReconciler(ctx, opened.store, outbox).start()

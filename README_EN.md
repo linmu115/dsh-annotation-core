@@ -38,6 +38,7 @@ After a consumer adds a reference:
 - References appear as annotation bubbles above the composer; no `@` token, quote block, or internal markup is inserted into the visible draft.
 - Open a bubble to inspect the full selection, edit the optional comment, or remove the reference.
 - Unsent annotations are renumbered after deletion.
+- Deleting a pending Obsidian reference removes the DSH bubble immediately and retries source cleanup in the background without blocking note editing.
 - Sent user messages show an “`N annotations`” pill that reopens immutable details.
 - “Annotation N” links in model answers open the corresponding item.
 - A failed submission keeps the text, images, and annotations in place.
