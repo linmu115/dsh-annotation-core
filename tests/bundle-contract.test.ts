@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('annotation core client bundle contract', () => {
-  it('publishes the complete 0.1.2 core API with official rc.2 peers', async () => {
+  it('publishes the complete 0.1.3 core API with version-open peers', async () => {
     const pkg = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8')) as {
       version: string
       exports: Record<string, { types?: string; default?: string } | string>
@@ -13,8 +13,9 @@ describe('annotation core client bundle contract', () => {
       dependencies: Record<string, string>
       dsh: { bundle: { patch: string }; client: { inject: string[]; platform: string } }
       dshKnowledge: { annotationProtocolVersion: number }
+      dshWorkshop: { compatibility?: unknown }
     }
-    expect(pkg.version).toBe('0.1.2')
+    expect(pkg.version).toBe('0.1.3')
     expect(Object.keys(pkg.exports)).toEqual(expect.arrayContaining([
       '.', './client', './protocol', './client-api', './host-api', './typert', './remote', './package.json',
     ]))
@@ -26,10 +27,8 @@ describe('annotation core client bundle contract', () => {
         await expect(access(join(process.cwd(), entry.default?.replace(/^\.\//, '') ?? 'missing'))).resolves.toBeUndefined()
       }
     }
-    for (const name of [
-      '@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-conversation',
-      '@deepseek-ai/dsh-client-ui-input-trigger', '@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-session',
-    ]) expect(pkg.peerDependencies[name]).toBe('0.1.1-rc.2')
+    expect(new Set(Object.values(pkg.peerDependencies))).toEqual(new Set(['*']))
+    expect(pkg.dshWorkshop.compatibility).toBeUndefined()
     expect(pkg.files).toContain('README_EN.md')
     expect(pkg.dsh.bundle.patch).toBe('./cordis.patch.yml')
     expect(pkg.dsh.client).toEqual({

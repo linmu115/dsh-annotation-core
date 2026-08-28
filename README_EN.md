@@ -6,7 +6,7 @@ English · [中文](README.md)
 
 ## Compatibility
 
-- Official DeepSeek Harness `0.1.1-rc.2`
+- DeepSeek Harness (official `0.1.1-rc.2` is the current test baseline, not an installation constraint)
 - Official `web` profile
 - No EAC or desktop-shell dependency
 
@@ -55,7 +55,7 @@ Yes. Both use the same single core instance.
 
 ### Can this be used with another DSH version?
 
-This release is validated only against official `0.1.1-rc.2`. Before upgrading DSH, create a rollback point in Maintenance Engine and run its compatibility checks.
+Current evidence comes from official `0.1.1-rc.2`, but package metadata no longer rejects other DSH versions. Judge compatibility through runtime interfaces and regression tests, with a Maintenance Engine rollback point before upgrades.
 
 ## License
 

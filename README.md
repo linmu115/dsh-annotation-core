@@ -6,7 +6,7 @@
 
 ## 适用版本
 
-- DeepSeek Harness 官方版 `0.1.1-rc.2`
+- DeepSeek Harness（当前测试基线为官方版 `0.1.1-rc.2`，安装不限制版本）
 - 官方 `web` profile
 - 不依赖 EAC 或其他桌面壳
 
@@ -55,7 +55,7 @@
 
 ### 可以用于其他 DSH 版本吗？
 
-当前版本只验收了官方 `0.1.1-rc.2`。升级 DSH 前，请先通过 Maintenance Engine 建立可回退点并检查插件兼容性。
+当前测试证据来自官方 `0.1.1-rc.2`，但包元数据不再阻止其他 DSH 版本安装。升级后以运行时接口和回归测试结果判断兼容性，并建议先通过 Maintenance Engine 建立可回退点。
 
 ## License
 
