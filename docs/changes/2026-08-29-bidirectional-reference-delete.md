@@ -6,3 +6,4 @@
 - DSH 注释详情现在提供“删除双向引用”，删除后会热更新注释浮窗和会话中的注释入口。
 - 协议 v2 增加 `reference-delete-request` 与 `reference-delete-commit`，供 Obsidian Bridge 双端同步使用。
 - 所有 Harness/React peer 均为宿主可选依赖并保持 `*`，消费插件安装时不再被包管理器反向锁定或自动补装旧 Runtime。
+- 仅用于仓库构建的 DSH 依赖保留 `rc.2` 预发布锚点，避免 Maintenance 错误查找尚未发布的正式版；运行时 peer 仍完全放宽。

@@ -257,7 +257,9 @@ export class AnnotationSubmissionCoordinator {
     signal?: AbortSignal,
   ): Promise<SubmissionResult> {
     const admission = this.store.readAdmission(agent.id, clientSubmissionId)
-    if (admission?.userMessageId !== message.id) throw new Error('Enqueued admission lost its message identity')
+    if (admission === undefined || admission.userMessageId !== message.id) {
+      throw new Error('Enqueued admission lost its message identity')
+    }
     const settlement = this.settlements.begin(agent, {
       userMessageId: message.id,
       ...(admission.contextMessageId === undefined ? {} : { contextMessageId: admission.contextMessageId }),
