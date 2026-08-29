@@ -3,12 +3,8 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
-  conversationContextKey: (kind: string, id: string) => `${kind}:${id}`,
-}))
-
 import { AnnotationConversationNode } from '../src/client/conversation-node.tsx'
-import { annotationConversationDefinition, suppressGenericAnnotationRow } from '../src/rc2/conversation-projection.tsx'
+import { annotationConversationDefinition, suppressGenericAnnotationRow } from '../src/client/conversation-projection.tsx'
 
 const roots: ReturnType<typeof createRoot>[] = []
 afterEach(() => { for (const root of roots.splice(0)) act(() => root.unmount()) })
@@ -31,8 +27,8 @@ describe('annotation conversation projection', () => {
     const matched = annotationConversationDefinition.match(event() as never)
     expect(matched).toEqual({ id: 'context-1', role: 'start' })
     const match = { event: event(), role: 'start', location: { kind: 'session' }, view: undefined } as never
-    const state = annotationConversationDefinition.start({ key: 'k', kind: 'dsh-annotation', id: 'context-1', matches: [match], start: match, state: undefined, current: new Map() }, match, { previous: () => undefined })
-    const node = annotationConversationDefinition.buildViewNode?.({ key: 'k', kind: 'dsh-annotation', id: 'context-1', matches: [match], start: match, state, current: new Map() })
+    const state = annotationConversationDefinition.start({ key: 'k', id: 'context-1' }, match)
+    const node = annotationConversationDefinition.buildViewNode?.({ key: 'k', id: 'context-1', state })
     expect(node).toMatchObject({ key: 'k', kind: 'dsh-annotation', id: 'context-1', target: 'chat', anchorSeq: 7, visibility: 'visible' })
 
     const host = document.createElement('div'); document.body.append(host)

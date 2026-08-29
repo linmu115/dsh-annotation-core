@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 
-import { suppressGenericAnnotationRow } from '../rc2/conversation-projection.tsx'
+import { suppressGenericAnnotationRow } from './conversation-projection.tsx'
 
 export interface AnnotationConversationNodeProps {
   readonly count: number

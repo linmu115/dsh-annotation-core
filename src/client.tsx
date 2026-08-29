@@ -4,20 +4,21 @@ import './client/styles.css'
 import { normalizeClientConfig } from './client/config.ts'
 import { AnnotationCoreClientService } from './client/service.tsx'
 import type { ClientConfig } from './client/service.tsx'
-import { applyRc2ClientAdapter } from './rc2/client-adapter.tsx'
+import { applyNativeClient } from './client/native-adapter.tsx'
 import { TYPERT_REMOTE } from './remote/typert.ts'
 
 export * from './public/client-api.ts'
 export { AnnotationCoreClientService } from './client/service.tsx'
 
-export const inject: readonly string[] = ['remote', 'slots', 'sessions', 'conversation', 'conversationEvents']
+export const inject: readonly string[] = ['remote', 'slots', 'sessions', 'conversation', 'uiConversation']
 
 export function apply(ctx: Context, config?: ClientConfig): void {
   const normalized = normalizeClientConfig(config)
   ctx.inject(inject, async (ready) => {
-    const disposeRemote = await ready.remote.$mount(TYPERT_REMOTE)
-    ready.effect(() => () => { void disposeRemote() })
-    new AnnotationCoreClientService(ready, normalized)
-    applyRc2ClientAdapter(ready)
+    const client = ready as unknown as Context
+    const disposeRemote = await client.remote.$mount(TYPERT_REMOTE)
+    client.effect(() => () => { void disposeRemote() })
+    new AnnotationCoreClientService(client, normalized)
+    applyNativeClient(client)
   })
 }

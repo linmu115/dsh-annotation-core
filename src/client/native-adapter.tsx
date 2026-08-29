@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { IConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { CommandClaim, SubmitImageAttachment } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SubmitImageAttachment } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 
 import type { Context } from '../context-types.ts'
-import type { AnnotationCoreClientService } from '../client/service.tsx'
-import type { ComposerBinding } from '../client/composer-binding.tsx'
+import type { AnnotationCoreClientService } from './service.tsx'
+import type { ComposerBinding } from './composer-binding.tsx'
 import { annotationConversationDefinition } from './conversation-projection.tsx'
 
 interface NativeInput {
   beginCommand(claim: CommandClaim, span: { readonly start: number; readonly end: number; readonly draftRev: number }): boolean
+}
+
+interface CommandClaim {
+  readonly token: string
+  readonly images: boolean
+  submit(text: string, actx: unknown, images: readonly SubmitImageAttachment[]): unknown
 }
 
 interface NativeRailInjected {
@@ -18,7 +21,15 @@ interface NativeRailInjected {
   readonly nativeInput: NativeInput
 }
 
-type NativeRailProps = PropsRuntime<'conversation.input.dock'> & NativeRailInjected
+type NativeRailProps = NativeRailInjected & {
+  readonly sessionId: string
+  readonly input: {
+    readonly phase: string
+    readonly draftRev: number
+    readonly imageIds: readonly string[]
+    readonly draft: string
+  }
+}
 
 function NativeAnnotationRail(props: NativeRailProps) {
   const handle = useMemo<ComposerBinding>(
@@ -48,7 +59,7 @@ function NativeAnnotationRail(props: NativeRailProps) {
 
 interface AnnotationNodeProps {
   readonly core: AnnotationCoreClientService
-  readonly sessionId: SessionId
+  readonly sessionId: string
   readonly node: unknown
 }
 
@@ -57,15 +68,32 @@ function AnnotationNodeView(props: AnnotationNodeProps) {
   return rendered?.node ?? null
 }
 
-function clientSessions(ctx: Context): ISessions {
-  return (ctx as unknown as { sessions: ISessions }).sessions
+interface AlphaClientContext {
+  readonly sessions: {
+    readonly list: { getSnapshot(): { readonly current?: string } }
+    binding(id: string): { readonly ctx: { get(name: string): unknown } } | undefined
+  }
+  readonly conversation: { readonly input: { for(ctx: unknown): NativeInput } }
+  readonly uiConversation: { readonly events: { register(definition: unknown): () => void } }
+  readonly slots: {
+    inject(name: string, register: () => (() => void) | void): () => void
+    register(options: Record<string, unknown>, component: unknown): () => void
+  }
 }
 
-function clientConversation(ctx: Context): IConversation {
-  return (ctx as unknown as { conversation: IConversation }).conversation
+function alphaClient(ctx: Context): AlphaClientContext {
+  return ctx as unknown as AlphaClientContext
 }
 
-function requireBinding(ctx: Context, sessionId: SessionId) {
+function clientSessions(ctx: Context): AlphaClientContext['sessions'] {
+  return alphaClient(ctx).sessions
+}
+
+function clientConversation(ctx: Context): AlphaClientContext['conversation'] {
+  return alphaClient(ctx).conversation
+}
+
+function requireBinding(ctx: Context, sessionId: string) {
   const binding = clientSessions(ctx).binding(sessionId)
   if (binding === undefined) throw new Error(`Annotation core could not resolve session ${JSON.stringify(sessionId)}`)
   return binding
@@ -94,15 +122,16 @@ function installFragmentCapture(ctx: Context): void {
   })
 }
 
-/** Official DSH 0.1.1-rc.2 adapter. All version-specific seams stay in this module. */
-export function applyRc2ClientAdapter(ctx: Context): void {
-  ctx.conversationEvents.register(annotationConversationDefinition)
+/** Register the annotation surfaces against the native DSH Conversation services. */
+export function applyNativeClient(ctx: Context): void {
+  const client = alphaClient(ctx)
+  client.uiConversation.events.register(annotationConversationDefinition)
 
-  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+  client.slots.inject('conversation.input.dock', () => client.slots.register({
     name: 'conversation.input.dock',
     id: 'dsh-annotation-core',
     order: 20,
-    inject: (sessionId) => {
+    inject: (sessionId: string) => {
       const binding = requireBinding(ctx, sessionId)
       return {
         core: binding.ctx.get('annotationCore') as AnnotationCoreClientService,
@@ -111,10 +140,10 @@ export function applyRc2ClientAdapter(ctx: Context): void {
     },
   }, NativeAnnotationRail))
 
-  ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
+  client.slots.inject('conversation.chat.node', () => client.slots.register({
     name: 'conversation.chat.node',
     key: 'dsh-annotation',
-    inject: (sessionId) => ({
+    inject: (sessionId: string) => ({
       core: requireBinding(ctx, sessionId).ctx.get('annotationCore') as AnnotationCoreClientService,
     }),
   }, AnnotationNodeView))
