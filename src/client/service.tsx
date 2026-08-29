@@ -18,11 +18,11 @@ import { ClientSourceRegistry } from './source-registry.ts'
 
 export interface ClientConfig { readonly profileId: string }
 
-const VERSION = '0.3.0'
+const VERSION = '0.3.1'
 type _ClientRemoteTypeRegistration = ClientRemote
 const FEATURES: readonly AnnotationCoreFeature[] = Object.freeze([
   'dsh-message-source-v1', 'embedded-composer-v1', 'embedded-conversation-node-v1', 'answer-link-v1', 'backlink-retry-v1',
-  'sent-reference-delete-v1',
+  'sent-reference-delete-v1', 'session-open-annotation-v1',
 ])
 
 function id(prefix: string): string { return `${prefix}-${globalThis.crypto.randomUUID()}` }
@@ -269,6 +269,15 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
         this.dialog.open(set, referenceId); return
       }
     }
+  }
+
+  async openAnnotationInSession(sessionId: string, setId: string, referenceId?: string): Promise<boolean> {
+    const set = await this.prefetchSent(sessionId, setId, this.remote(sessionId))
+    if (set === undefined || (referenceId !== undefined && !set.items.some((item) => item.referenceId === referenceId))) {
+      return false
+    }
+    this.dialog.open(set, referenceId)
+    return true
   }
 
   private rememberSent(sessionId: string, set: ReferenceSet): void {

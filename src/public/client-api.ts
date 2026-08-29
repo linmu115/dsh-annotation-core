@@ -15,6 +15,7 @@ export type AnnotationCoreFeature =
   | 'answer-link-v1'
   | 'backlink-retry-v1'
   | 'sent-reference-delete-v1'
+  | 'session-open-annotation-v1'
 
 export interface ClientSourceAdapter {
   openSource(item: ReferenceItem): Promise<void>
@@ -92,6 +93,7 @@ export interface AnnotationCoreClient {
   }): { key: string; node: React.ReactNode } | undefined
   handleAnswerLink(sessionId: string, href: string): boolean
   openAnnotation(setId: string, referenceId?: string): void
+  openAnnotationInSession(sessionId: string, setId: string, referenceId?: string): Promise<boolean>
   registerSourceAdapter(type: SourceType, adapter: ClientSourceAdapter): () => void
 }
 
