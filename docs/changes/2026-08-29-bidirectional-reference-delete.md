@@ -5,3 +5,4 @@
 - 保留剩余引用的原编号，不改写已经写入会话日志的历史提问或上下文事件。
 - DSH 注释详情现在提供“删除双向引用”，删除后会热更新注释浮窗和会话中的注释入口。
 - 协议 v2 增加 `reference-delete-request` 与 `reference-delete-commit`，供 Obsidian Bridge 双端同步使用。
+- 所有 Harness/React peer 均为宿主可选依赖并保持 `*`，消费插件安装时不再被包管理器反向锁定或自动补装旧 Runtime。

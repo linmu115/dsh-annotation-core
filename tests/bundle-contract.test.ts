@@ -10,6 +10,7 @@ describe('annotation core client bundle contract', () => {
       exports: Record<string, { types?: string; default?: string } | string>
       files: string[]
       peerDependencies: Record<string, string>
+      peerDependenciesMeta: Record<string, { optional?: boolean }>
       dependencies: Record<string, string>
       dsh: { bundle: { patch: string }; client: { inject: string[]; platform: string } }
       dshKnowledge: { annotationProtocolVersion: number }
@@ -28,6 +29,8 @@ describe('annotation core client bundle contract', () => {
       }
     }
     expect(new Set(Object.values(pkg.peerDependencies))).toEqual(new Set(['*']))
+    expect(Object.keys(pkg.peerDependenciesMeta).sort()).toEqual(Object.keys(pkg.peerDependencies).sort())
+    expect(Object.values(pkg.peerDependenciesMeta).every((value) => value.optional === true)).toBe(true)
     expect(pkg.dshWorkshop.compatibility).toBeUndefined()
     expect(pkg.files).toContain('README_EN.md')
     expect(pkg.dsh.bundle.patch).toBe('./cordis.patch.yml')
