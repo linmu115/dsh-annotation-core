@@ -34,6 +34,7 @@ function renderDialog(controller: AnnotationDialogController, updateComment = vi
     sources={new ClientSourceRegistry()}
     updateComment={updateComment}
     remove={() => Promise.resolve()}
+    deleteLink={() => Promise.resolve()}
     reuse={() => Promise.resolve()}
     retryBacklink={() => Promise.resolve()}
   />))

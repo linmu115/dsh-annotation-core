@@ -14,6 +14,7 @@ export type AnnotationCoreFeature =
   | 'embedded-conversation-node-v1'
   | 'answer-link-v1'
   | 'backlink-retry-v1'
+  | 'sent-reference-delete-v1'
 
 export interface ClientSourceAdapter {
   openSource(item: ReferenceItem): Promise<void>
@@ -72,6 +73,11 @@ export interface AnnotationCoreClient {
   discardPendingOperation(sessionId: string, operationId: string): Promise<void>
   updateComment(sessionId: string, referenceId: string, comment: string): Promise<void>
   removeReference(sessionId: string, referenceId: string): Promise<void>
+  deleteReferenceLink(
+    sessionId: string,
+    setId: string,
+    referenceId: string,
+  ): Promise<{ deleted: boolean; scope: 'pending' | 'sent' }>
   reuseReference(referenceId: string, targetSessionId: string): Promise<{ setId: string; referenceId: string }>
   retryBacklink(setId: string, referenceId: string): Promise<void>
   bindComposer(input: {

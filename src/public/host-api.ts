@@ -12,10 +12,20 @@ export interface SentReferenceBinding {
   readonly item: ReferenceItem
 }
 
+export interface DeletedReferenceBinding {
+  readonly profileId: string
+  readonly sessionId: string
+  readonly setId: string
+  readonly referenceId: string
+  readonly deletedAt: number
+  readonly item: ReferenceItem
+}
+
 export interface HostSourceAdapter {
   prepare(item: ReferenceItem, signal: AbortSignal): Promise<ReferenceItem>
   discardPending?(item: ReferenceItem): Promise<void>
   commitBacklink?(binding: SentReferenceBinding): Promise<BacklinkReceiptV2>
+  deleteCommitted?(binding: DeletedReferenceBinding): Promise<void>
 }
 
 export interface AnnotationCoreHost {

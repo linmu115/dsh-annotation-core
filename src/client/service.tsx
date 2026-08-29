@@ -18,10 +18,11 @@ import { ClientSourceRegistry } from './source-registry.ts'
 
 export interface ClientConfig { readonly profileId: string }
 
-const VERSION = '0.1.0'
+const VERSION = '0.3.0'
 type _ClientRemoteTypeRegistration = ClientRemote
 const FEATURES: readonly AnnotationCoreFeature[] = Object.freeze([
   'dsh-message-source-v1', 'embedded-composer-v1', 'embedded-conversation-node-v1', 'answer-link-v1', 'backlink-retry-v1',
+  'sent-reference-delete-v1',
 ])
 
 function id(prefix: string): string { return `${prefix}-${globalThis.crypto.randomUUID()}` }
@@ -61,6 +62,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
   readonly dialog = new AnnotationDialogController()
   private readonly sent = new Map<string, Map<string, ReferenceSet>>()
   private readonly sentSummaries = new Map<string, Map<string, number>>()
+  private readonly sentListeners = new Map<string, Set<() => void>>()
 
   constructor(ctx: Context, readonly config: ClientConfig) {
     super(ctx, 'annotationCore')
@@ -118,6 +120,30 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
   async removeReference(sessionId: string, referenceId: string): Promise<void> {
     const remote = this.remote(sessionId); const state = unwrapRemote(await remote.readPending())
     unwrapRemote(await remote.removeReference({ expectedRevision: state.revision, referenceId }))
+  }
+
+  async deleteReferenceLink(sessionId: string, setId: string, referenceId: string): Promise<{ deleted: boolean; scope: 'pending' | 'sent' }> {
+    const remote = this.remote(sessionId)
+    const state = unwrapRemote(await remote.readPending())
+    const result = unwrapRemote(await remote.deleteReferenceLink({
+      expectedRevision: state.revision,
+      setId,
+      referenceId,
+      deletedAt: Date.now(),
+    }))
+    if (result.scope === 'pending') {
+      await this.refreshDialogPending(sessionId, setId)
+    } else {
+      const refreshed = unwrapRemote(await remote.readSentSet(setId))
+      if (refreshed === null) this.forgetSent(sessionId, setId)
+      else this.rememberSent(sessionId, refreshed)
+      const dialog = this.dialog.getSnapshot()
+      if (dialog.set?.setId === setId) {
+        if (refreshed === null || refreshed.items.length === 0) this.dialog.close()
+        else this.dialog.replace(refreshed)
+      }
+    }
+    return { deleted: result.deleted, scope: result.scope }
   }
 
   async reuseReference(referenceId: string, targetSessionId: string): Promise<{ setId: string; referenceId: string }> {
@@ -183,6 +209,10 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
         unwrapRemote(await remote.removeReference({ expectedRevision: state.revision, referenceId }))
         await this.refreshDialogPending(sessionId, set.setId)
       }}
+      deleteLink={async (setId, referenceId) => {
+        const { sessionId } = target()
+        await this.deleteReferenceLink(sessionId, setId, referenceId)
+      }}
       reuse={async (referenceId) => {
         const { remote } = target()
         const state = unwrapRemote(await remote.readPending())
@@ -212,6 +242,8 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
       key: node.key,
       node: <AnnotationConversationNode
         count={node.data.count}
+        getCount={() => this.sentSummaries.get(input.sessionId)?.get(node.data.setId) ?? node.data.count}
+        subscribeCount={(listener) => this.subscribeSent(input.sessionId, node.data.setId, listener)}
         {...(node.data.genericContextKey === undefined ? {} : { genericContextKey: node.data.genericContextKey })}
         open={() => void this.openSent(input.sessionId, node.data.setId, remote).catch(() => undefined)}
       />,
@@ -242,6 +274,32 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
   private rememberSent(sessionId: string, set: ReferenceSet): void {
     const bySet = this.sent.get(sessionId) ?? new Map<string, ReferenceSet>(); bySet.set(set.setId, set); this.sent.set(sessionId, bySet)
     const summaries = this.sentSummaries.get(sessionId) ?? new Map<string, number>(); summaries.set(set.setId, set.items.length); this.sentSummaries.set(sessionId, summaries)
+    this.emitSent(sessionId, set.setId)
+  }
+
+  private forgetSent(sessionId: string, setId: string): void {
+    this.sent.get(sessionId)?.delete(setId)
+    const summaries = this.sentSummaries.get(sessionId) ?? new Map<string, number>()
+    summaries.set(setId, 0)
+    this.sentSummaries.set(sessionId, summaries)
+    this.emitSent(sessionId, setId)
+  }
+
+  private sentKey(sessionId: string, setId: string): string { return `${sessionId}\u0000${setId}` }
+
+  private subscribeSent(sessionId: string, setId: string, listener: () => void): () => void {
+    const key = this.sentKey(sessionId, setId)
+    const listeners = this.sentListeners.get(key) ?? new Set<() => void>()
+    listeners.add(listener)
+    this.sentListeners.set(key, listeners)
+    return () => {
+      listeners.delete(listener)
+      if (listeners.size === 0) this.sentListeners.delete(key)
+    }
+  }
+
+  private emitSent(sessionId: string, setId: string): void {
+    for (const listener of this.sentListeners.get(this.sentKey(sessionId, setId)) ?? []) listener()
   }
 
   private async prefetchSent(sessionId: string, setId: string, remote: AnnotationCoreRemoteNamespace): Promise<ReferenceSet | undefined> {

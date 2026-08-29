@@ -45,6 +45,7 @@ export interface ReferenceDialogProps {
   readonly sources: ClientSourceRegistry
   readonly updateComment: (referenceId: string, comment: string) => Promise<void>
   readonly remove: (referenceId: string) => Promise<void>
+  readonly deleteLink: (setId: string, referenceId: string) => Promise<void>
   readonly reuse: (referenceId: string) => Promise<void>
   readonly retryBacklink: (setId: string, referenceId: string) => Promise<void>
 }
@@ -55,7 +56,7 @@ function sourceDescription(item: ReferenceItem): string {
   return `${item.locator.notePath} · ${freshness}`
 }
 
-export function ReferenceDialog({ controller, sources, updateComment, remove, reuse, retryBacklink }: ReferenceDialogProps) {
+export function ReferenceDialog({ controller, sources, updateComment, remove, deleteLink, reuse, retryBacklink }: ReferenceDialogProps) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const closeRef = useRef<HTMLButtonElement>(null)
   const commentRef = useRef<HTMLTextAreaElement>(null)
@@ -135,7 +136,13 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, re
             {source?.copySourceLink !== undefined && <button className="dshAnnotationAction" type="button" onClick={() => void source.copySourceLink?.(activeItem).then((text) => navigator.clipboard.writeText(text))}>复制来源链接</button>}
             {snapshot.editable
               ? <button className="dshAnnotationAction danger" type="button" onClick={() => void remove(activeItem.referenceId)}>删除</button>
-              : <button className="dshAnnotationAction primary" type="button" onClick={() => void reuse(activeItem.referenceId)}>重新添加到当前提问</button>}
+              : <>
+                  <button className="dshAnnotationAction primary" type="button" onClick={() => void reuse(activeItem.referenceId)}>重新添加到当前提问</button>
+                  <button className="dshAnnotationAction danger" type="button" onClick={() => {
+                    if (!globalThis.confirm('删除这条双向引用？DSH 中已发送的历史消息不会被改写，但双方的引用关系和 Obsidian 生成块都会删除。')) return
+                    void deleteLink(set.setId, activeItem.referenceId)
+                  }}>删除双向引用</button>
+                </>}
             {!snapshot.editable && activeItem.backlinkState === 'failed' && <button className="dshAnnotationAction" type="button" onClick={() => void retryBacklink(set.setId, activeItem.referenceId)}>重试回链</button>}
           </div>
         </article>

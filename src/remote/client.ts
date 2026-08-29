@@ -7,6 +7,7 @@ import type { ReferenceSet } from '../domain/model.ts'
 import type {
   AddReferenceRequest,
   DiscardPendingOperationRequest,
+  DeleteReferenceLinkRequest,
   FenceReferenceOperationRequest,
   RemoveReferenceRequest,
   RetryBacklinkRequest,
@@ -32,6 +33,11 @@ export interface AnnotationCoreRemoteNamespace {
   discardPendingOperation(request: DiscardPendingOperationRequest): Promise<RemoteResult<void>>
   updateComment(request: UpdateCommentRequest): Promise<RemoteResult<void>>
   removeReference(request: RemoveReferenceRequest): Promise<RemoteResult<void>>
+  deleteReferenceLink(request: DeleteReferenceLinkRequest): Promise<RemoteResult<{
+    revision: number
+    deleted: boolean
+    scope: 'pending' | 'sent'
+  }>>
   reuseReference(request: ReuseReferenceRequest): Promise<RemoteResult<{
     revision: number
     setId: string

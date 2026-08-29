@@ -6,6 +6,7 @@ import type { BacklinkReceiptV2 } from '../protocol/index.ts'
 import type { SourceType } from '../protocol/index.ts'
 import type {
   AnnotationCoreHost,
+  DeletedReferenceBinding,
   HostSourceAdapter,
   SentReferenceBinding,
 } from '../public/host-api.ts'
@@ -69,5 +70,14 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
 
   async commitBacklink(binding: SentReferenceBinding): Promise<BacklinkReceiptV2 | undefined> {
     return this.adapters.get(binding.item.sourceType)?.commitBacklink?.(binding)
+  }
+
+  async deleteCommitted(binding: DeletedReferenceBinding): Promise<void> {
+    const adapter = this.adapters.get(binding.item.sourceType)
+    if (adapter?.deleteCommitted === undefined) {
+      if (binding.item.sourceType === 'dsh-message') return
+      throw new Error(`No committed-reference deletion adapter is registered for ${binding.item.sourceType}`)
+    }
+    await adapter.deleteCommitted(binding)
   }
 }

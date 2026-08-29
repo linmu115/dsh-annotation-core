@@ -212,6 +212,46 @@ const PendingDiscardJobSchema = z.object({
   updatedAt: NonNegativeIntegerSchema,
 }).strict()
 
+export interface CommittedDeleteJob {
+  readonly setId: string
+  readonly referenceId: string
+  readonly state: 'pending'
+  readonly item: ReferenceItem
+  readonly deletedAt: number
+  readonly attempts: number
+  readonly lastError?: string | undefined
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
+const CommittedDeleteJobSchema = z.object({
+  setId: NonEmptyStringSchema,
+  referenceId: NonEmptyStringSchema,
+  state: z.literal('pending'),
+  item: ReferenceItemSchema,
+  deletedAt: NonNegativeIntegerSchema,
+  attempts: NonNegativeIntegerSchema,
+  lastError: z.string().optional(),
+  createdAt: NonNegativeIntegerSchema,
+  updatedAt: NonNegativeIntegerSchema,
+}).strict()
+
+export interface DeletedReferenceRecord {
+  readonly setId: string
+  readonly referenceId: string
+  readonly scope: 'pending' | 'sent'
+  readonly sourceType: ReferenceItem['sourceType']
+  readonly deletedAt: number
+}
+
+const DeletedReferenceRecordSchema = z.object({
+  setId: NonEmptyStringSchema,
+  referenceId: NonEmptyStringSchema,
+  scope: z.enum(['pending', 'sent']),
+  sourceType: z.enum(['dsh-message', 'obsidian-note']),
+  deletedAt: NonNegativeIntegerSchema,
+}).strict()
+
 export interface SessionAggregate {
   readonly schemaVersion: 1
   readonly profileId: string
@@ -225,6 +265,8 @@ export interface SessionAggregate {
   readonly flushReconciliations: Readonly<Record<string, FlushReconciliationRecord>>
   readonly backlinkJobs: Readonly<Record<string, BacklinkJob>>
   readonly pendingDiscardJobs: Readonly<Record<string, PendingDiscardJob>>
+  readonly committedDeleteJobs: Readonly<Record<string, CommittedDeleteJob>>
+  readonly deletedReferences: Readonly<Record<string, DeletedReferenceRecord>>
 }
 
 export const SessionAggregateSchema = z.object({
@@ -240,6 +282,8 @@ export const SessionAggregateSchema = z.object({
   flushReconciliations: z.record(z.string(), FlushReconciliationRecordSchema),
   backlinkJobs: z.record(z.string(), BacklinkJobSchema),
   pendingDiscardJobs: z.record(z.string(), PendingDiscardJobSchema).default({}),
+  committedDeleteJobs: z.record(z.string(), CommittedDeleteJobSchema).default({}),
+  deletedReferences: z.record(z.string(), DeletedReferenceRecordSchema).default({}),
 }).strict() as unknown as z.ZodType<SessionAggregate>
 
 export const annotationCoreDomainSpec = defineDomain({
@@ -317,6 +361,8 @@ function emptyAggregate(profileId: string, sessionId: string): SessionAggregate 
     flushReconciliations: {},
     backlinkJobs: {},
     pendingDiscardJobs: {},
+    committedDeleteJobs: {},
+    deletedReferences: {},
   }
 }
 
@@ -620,6 +666,100 @@ export class AnnotationStore {
     })
   }
 
+  async deleteReferenceLink(sessionId: string, input: {
+    expectedRevision: number
+    setId: string
+    referenceId: string
+    deletedAt: number
+  }): Promise<{ revision: number; deleted: boolean; scope: 'pending' | 'sent' }> {
+    return this.mutate<{ revision: number; deleted: boolean; scope: 'pending' | 'sent' }>(sessionId, (aggregate) => {
+      const tombstone = aggregate.deletedReferences[input.referenceId]
+      if (tombstone !== undefined) {
+        if (tombstone.setId !== input.setId) throw new Error('Deleted reference identity does not match the requested set')
+        return {
+          changed: false,
+          aggregate,
+          value: { revision: aggregate.revision, deleted: false, scope: tombstone.scope },
+        }
+      }
+      assertExpected(aggregate, input.expectedRevision)
+
+      if (aggregate.pending?.setId === input.setId) {
+        const item = aggregate.pending.items.find((candidate) => candidate.referenceId === input.referenceId)
+        if (item === undefined) throw new RangeError(`Unknown reference ${JSON.stringify(input.referenceId)}`)
+        let pending: ReferenceSet | undefined = removeReferenceFromSet(
+          aggregate.pending,
+          input.referenceId,
+          aggregate.pending.revision,
+        )
+        if (pending.items.length === 0) pending = undefined
+        const revision = aggregate.revision + 1
+        const next: SessionAggregate = {
+          ...aggregate,
+          revision,
+          pending,
+          pendingDiscardJobs: withPendingDiscardJob(aggregate, item, input.deletedAt),
+          deletedReferences: {
+            ...aggregate.deletedReferences,
+            [input.referenceId]: {
+              setId: input.setId,
+              referenceId: input.referenceId,
+              scope: 'pending',
+              sourceType: item.sourceType,
+              deletedAt: input.deletedAt,
+            },
+          },
+        }
+        return { changed: true, aggregate: next, value: { revision, deleted: true, scope: 'pending' as const } }
+      }
+
+      const setIndex = aggregate.sentSets.findIndex((candidate) => candidate.setId === input.setId)
+      if (setIndex < 0) throw new RangeError(`Unknown sent reference set ${JSON.stringify(input.setId)}`)
+      const sent = aggregate.sentSets[setIndex] as ReferenceSet
+      const item = sent.items.find((candidate) => candidate.referenceId === input.referenceId)
+      if (item === undefined) throw new RangeError(`Unknown reference ${JSON.stringify(input.referenceId)}`)
+      const remaining = sent.items.filter((candidate) => candidate.referenceId !== input.referenceId)
+      const sentSets = [...aggregate.sentSets]
+      if (remaining.length === 0) sentSets.splice(setIndex, 1)
+      else sentSets[setIndex] = { ...sent, revision: sent.revision + 1, items: remaining }
+      const backlinkJobs = { ...aggregate.backlinkJobs }
+      delete backlinkJobs[`${input.setId}:${input.referenceId}`]
+      const committedDeleteJobs = { ...aggregate.committedDeleteJobs }
+      if (item.sourceType === 'obsidian-note') {
+        const key = `${input.setId}:${input.referenceId}`
+        committedDeleteJobs[key] ??= {
+          setId: input.setId,
+          referenceId: input.referenceId,
+          state: 'pending',
+          item: clone(item),
+          deletedAt: input.deletedAt,
+          attempts: 0,
+          createdAt: input.deletedAt,
+          updatedAt: input.deletedAt,
+        }
+      }
+      const revision = aggregate.revision + 1
+      const next: SessionAggregate = {
+        ...aggregate,
+        revision,
+        sentSets,
+        backlinkJobs,
+        committedDeleteJobs,
+        deletedReferences: {
+          ...aggregate.deletedReferences,
+          [input.referenceId]: {
+            setId: input.setId,
+            referenceId: input.referenceId,
+            scope: 'sent',
+            sourceType: item.sourceType,
+            deletedAt: input.deletedAt,
+          },
+        },
+      }
+      return { changed: true, aggregate: next, value: { revision, deleted: true, scope: 'sent' as const } }
+    })
+  }
+
   listPendingDiscardJobs(sessionId: string): readonly PendingDiscardJob[] {
     return Object.values(this.read(sessionId).pendingDiscardJobs).map(clone)
   }
@@ -665,6 +805,59 @@ export class AnnotationStore {
         ...aggregate,
         revision: aggregate.revision + 1,
         pendingDiscardJobs,
+      }
+      return { changed: true, aggregate: next, value: { revision: next.revision, removed: true } }
+    })
+  }
+
+  listCommittedDeleteJobs(sessionId: string): readonly CommittedDeleteJob[] {
+    return Object.values(this.read(sessionId).committedDeleteJobs).map(clone)
+  }
+
+  async recordCommittedDeleteFailure(sessionId: string, input: {
+    expectedRevision: number
+    setId: string
+    referenceId: string
+    error: string
+    updatedAt: number
+  }): Promise<{ revision: number; job: CommittedDeleteJob }> {
+    return this.mutate(sessionId, (aggregate) => {
+      assertExpected(aggregate, input.expectedRevision)
+      const key = `${input.setId}:${input.referenceId}`
+      const existing = aggregate.committedDeleteJobs[key]
+      if (existing === undefined) throw new RangeError(`Unknown committed delete job ${JSON.stringify(key)}`)
+      const job: CommittedDeleteJob = {
+        ...existing,
+        attempts: existing.attempts + 1,
+        lastError: input.error,
+        updatedAt: input.updatedAt,
+      }
+      const next: SessionAggregate = {
+        ...aggregate,
+        revision: aggregate.revision + 1,
+        committedDeleteJobs: { ...aggregate.committedDeleteJobs, [key]: job },
+      }
+      return { changed: true, aggregate: next, value: { revision: next.revision, job } }
+    })
+  }
+
+  async completeCommittedDelete(sessionId: string, input: {
+    expectedRevision: number
+    setId: string
+    referenceId: string
+  }): Promise<{ revision: number; removed: boolean }> {
+    return this.mutate<{ revision: number; removed: boolean }>(sessionId, (aggregate) => {
+      const key = `${input.setId}:${input.referenceId}`
+      if (aggregate.committedDeleteJobs[key] === undefined) {
+        return { changed: false, aggregate, value: { revision: aggregate.revision, removed: false } }
+      }
+      assertExpected(aggregate, input.expectedRevision)
+      const committedDeleteJobs = { ...aggregate.committedDeleteJobs }
+      delete committedDeleteJobs[key]
+      const next: SessionAggregate = {
+        ...aggregate,
+        revision: aggregate.revision + 1,
+        committedDeleteJobs,
       }
       return { changed: true, aggregate: next, value: { revision: next.revision, removed: true } }
     })
