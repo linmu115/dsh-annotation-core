@@ -148,34 +148,51 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
         const refreshed = await binding.store.refresh()
         if (refreshed.pending !== null) this.dialog.replace(refreshed.pending); else this.dialog.close()
       },
-      renderDialog: () => this.renderDialog(input.sessionId, remote, binding),
     })
     return binding
   }
 
-  private renderDialog(sessionId: string, remote: AnnotationCoreRemoteNamespace, binding?: ComposerBinding): React.ReactNode {
-    const refreshPending = async () => {
-      const refreshed = binding === undefined ? unwrapRemote(await remote.readPending()) : await binding.store.refresh()
-      if (refreshed.pending !== null) this.dialog.replace(refreshed.pending); else this.dialog.close()
+  private dialogSet(): ReferenceSet {
+    const set = this.dialog.getSnapshot().set
+    if (set === undefined) throw new Error('dsh-annotation-core: annotation dialog has no active reference set')
+    return set
+  }
+
+  private async refreshDialogPending(sessionId: string, setId: string): Promise<void> {
+    const refreshed = unwrapRemote(await this.remote(sessionId).readPending())
+    if (refreshed.pending?.setId === setId) this.dialog.replace(refreshed.pending)
+    else if (this.dialog.getSnapshot().set?.setId === setId) this.dialog.close()
+  }
+
+  renderGlobalDialog(): React.ReactNode {
+    const target = () => {
+      const set = this.dialogSet()
+      return { set, sessionId: set.sessionId, remote: this.remote(set.sessionId) }
     }
     return <ReferenceDialog
       controller={this.dialog} sources={this.sources}
       updateComment={async (referenceId, comment) => {
+        const { set, sessionId, remote } = target()
         const state = unwrapRemote(await remote.readPending())
-        unwrapRemote(await remote.updateComment({ expectedRevision: state.revision, referenceId, comment })); await refreshPending()
+        unwrapRemote(await remote.updateComment({ expectedRevision: state.revision, referenceId, comment }))
+        await this.refreshDialogPending(sessionId, set.setId)
       }}
       remove={async (referenceId) => {
+        const { set, sessionId, remote } = target()
         const state = unwrapRemote(await remote.readPending())
-        unwrapRemote(await remote.removeReference({ expectedRevision: state.revision, referenceId })); await refreshPending()
+        unwrapRemote(await remote.removeReference({ expectedRevision: state.revision, referenceId }))
+        await this.refreshDialogPending(sessionId, set.setId)
       }}
       reuse={async (referenceId) => {
+        const { remote } = target()
         const state = unwrapRemote(await remote.readPending())
         unwrapRemote(await remote.reuseReference({
           expectedRevision: state.revision, sourceReferenceId: referenceId, operationId: id('operation'),
           setId: state.pending?.setId ?? id('set'), referenceId: id('reference'), createdAt: Date.now(),
-        })); await refreshPending()
+        }))
       }}
       retryBacklink={async (setId, referenceId) => {
+        const { sessionId, remote } = target()
         const state = unwrapRemote(await remote.readPending())
         unwrapRemote(await remote.retryBacklink({ expectedRevision: state.revision, setId, referenceId }))
         const sent = unwrapRemote(await remote.readSentSet(setId))
@@ -193,14 +210,11 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     void this.prefetchSent(input.sessionId, node.data.setId, remote).catch(() => undefined)
     return {
       key: node.key,
-      node: <>
-        <AnnotationConversationNode
-          count={node.data.count}
-          {...(node.data.genericContextKey === undefined ? {} : { genericContextKey: node.data.genericContextKey })}
-          open={() => void this.openSent(input.sessionId, node.data.setId, remote).catch(() => undefined)}
-        />
-        {this.renderDialog(input.sessionId, remote)}
-      </>,
+      node: <AnnotationConversationNode
+        count={node.data.count}
+        {...(node.data.genericContextKey === undefined ? {} : { genericContextKey: node.data.genericContextKey })}
+        open={() => void this.openSent(input.sessionId, node.data.setId, remote).catch(() => undefined)}
+      />,
     }
   }
 

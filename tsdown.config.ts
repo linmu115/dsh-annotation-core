@@ -71,6 +71,7 @@ export default [
         'react',
         'react/jsx-runtime',
         'react-dom',
+        'react-dom/client',
         '@deepseek-ai/cordis',
         '@deepseek-ai/dsh-api-session-controller',
         '@deepseek-ai/dsh-api-session-controller/client',

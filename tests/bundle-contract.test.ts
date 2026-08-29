@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('annotation core client bundle contract', () => {
-  it('publishes the complete 0.2.0 core API with version-open peers', async () => {
+  it('publishes the complete 0.2.1 core API with version-open peers', async () => {
     const pkg = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8')) as {
       version: string
       exports: Record<string, { types?: string; default?: string } | string>
@@ -15,7 +15,7 @@ describe('annotation core client bundle contract', () => {
       dshKnowledge: { annotationProtocolVersion: number }
       dshWorkshop: { compatibility?: unknown }
     }
-    expect(pkg.version).toBe('0.2.0')
+    expect(pkg.version).toBe('0.2.1')
     expect(Object.keys(pkg.exports)).toEqual(expect.arrayContaining([
       '.', './client', './protocol', './client-api', './host-api', './typert', './remote', './package.json',
     ]))
@@ -57,12 +57,22 @@ describe('annotation core client bundle contract', () => {
       '@deepseek-ai/cordis',
       'react',
       'react-dom',
+      'react-dom/client',
       'react/jsx-runtime',
     ]))
     expect(source).toContain('data-plugin-css')
     expect(source).toContain('dsh-annotation-core/styles')
     expect(source).not.toContain('\\u2063')
     expect(source).not.toContain('tests/fixtures/codex-annotation-visual.html')
+  })
+
+  it('owns exactly one global annotation dialog instead of one per composer', async () => {
+    const entry = await readFile(join(process.cwd(), 'src', 'client.tsx'), 'utf8')
+    const service = await readFile(join(process.cwd(), 'src', 'client', 'service.tsx'), 'utf8')
+    const composer = await readFile(join(process.cwd(), 'src', 'client', 'composer-binding.tsx'), 'utf8')
+    expect(entry).toContain('service.renderGlobalDialog()')
+    expect(service.match(/renderGlobalDialog\(\)/g)).toHaveLength(1)
+    expect(composer).not.toContain('renderDialog')
   })
 
   it('loads the protocol entry in an ordinary Node process', async () => {
