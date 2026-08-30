@@ -104,4 +104,25 @@ describe('committed bidirectional reference deletion', () => {
     expect(store.listCommittedDeleteJobs('session')).toEqual([])
     outbox.dispose()
   })
+
+  it('keeps the DSH relation deleted while failed source cleanup retries in the background', async () => {
+    const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
+    await commit(store, [{ id: 'reference-1', source: obsidianSource() }])
+    await store.deleteReferenceLink('session', {
+      expectedRevision: store.read('session').revision,
+      setId: 'set-1', referenceId: 'reference-1', deletedAt: 20,
+    })
+
+    const sources = new HostSourceRegistry(new Context())
+    const deleteCommitted = vi.fn(async () => { throw new Error('Obsidian is temporarily offline') })
+    sources.registerSourceAdapter('obsidian-note', { prepare: async (item) => item, deleteCommitted })
+    const outbox = new CommittedDeleteOutbox(store, sources, { retryDelayMs: 60_000, now: () => 30 })
+    await outbox.runPending('session')
+
+    expect(store.readSentSet('session', 'set-1')).toBeUndefined()
+    expect(store.listCommittedDeleteJobs('session')).toEqual([
+      expect.objectContaining({ state: 'pending', attempts: 1, lastError: 'Obsidian is temporarily offline' }),
+    ])
+    outbox.dispose()
+  })
 })

@@ -36,8 +36,10 @@ export interface AnnotationConversationData {
 
 export interface AnnotationConversationState extends AnnotationConversationData {
   readonly seq: number
-  readonly location: ConversationLocation
+  readonly sourceLocation: ConversationLocation
 }
+
+const SESSION_LOCATION: ConversationLocation = Object.freeze({ kind: 'session' })
 
 function conversationContextKey(kind: string, id: string): string {
   return `${kind.length}:${kind}${id}`
@@ -80,7 +82,7 @@ export const annotationConversationDefinition: ConversationNodeDefinition<Annota
       count: found.source.count,
       genericContextKey: conversationContextKey('input-message', found.id),
       seq: found.seq,
-      location: match.location,
+      sourceLocation: match.location,
     })
   },
   update(context) {
@@ -97,7 +99,11 @@ export const annotationConversationDefinition: ConversationNodeDefinition<Annota
       id: state.contextMessageId,
       target: 'chat',
       anchorSeq: state.seq,
-      location: state.location,
+      // DSH 0.1.2-alpha.1 folds every custom Turn-local Node into the answer's
+      // process window, even when its declared visibility is `visible`. Keep
+      // the durable annotation at the same ordering anchor but project it at
+      // Session scope so it remains independent of Turn-process disclosure.
+      location: SESSION_LOCATION,
       visibility: 'visible',
       data: {
         contextMessageId: state.contextMessageId,

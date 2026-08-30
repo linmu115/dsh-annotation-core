@@ -26,10 +26,19 @@ describe('annotation conversation projection', () => {
   it('projects one stable right-aligned pill from the durable source event', async () => {
     const matched = annotationConversationDefinition.match(event() as never)
     expect(matched).toEqual({ id: 'context-1', role: 'start' })
-    const match = { event: event(), role: 'start', location: { kind: 'session' }, view: undefined } as never
+    const match = {
+      event: event(),
+      role: 'start',
+      location: { kind: 'turn', turn: { turn: 1, status: 'closed' } },
+      view: undefined,
+    } as never
     const state = annotationConversationDefinition.start({ key: 'k', id: 'context-1' }, match)
     const node = annotationConversationDefinition.buildViewNode?.({ key: 'k', id: 'context-1', state })
-    expect(node).toMatchObject({ key: 'k', kind: 'dsh-annotation', id: 'context-1', target: 'chat', anchorSeq: 7, visibility: 'visible' })
+    expect(state.sourceLocation).toMatchObject({ kind: 'turn' })
+    expect(node).toMatchObject({
+      key: 'k', kind: 'dsh-annotation', id: 'context-1', target: 'chat',
+      anchorSeq: 7, visibility: 'visible', location: { kind: 'session' },
+    })
 
     const host = document.createElement('div'); document.body.append(host)
     const root = createRoot(host); roots.push(root)

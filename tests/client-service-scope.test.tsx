@@ -37,7 +37,7 @@ describe('alpha.1 client service scope', () => {
     })
     await consumer
 
-    expect(injected).toMatchObject({ version: '0.3.2' })
+    expect(injected).toMatchObject({ version: '0.3.3' })
     expect(document.querySelector('[data-dsh-annotation-dialog-host]')).not.toBeNull()
 
     await consumer.dispose()
