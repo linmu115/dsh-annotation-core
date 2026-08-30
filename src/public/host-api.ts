@@ -30,6 +30,15 @@ export interface HostSourceAdapter {
 
 export interface AnnotationCoreHost {
   registerSourceAdapter(type: SourceType, adapter: HostSourceAdapter): () => void
+  /**
+   * Optional host-side mutation used by background integrations that must not
+   * depend on an open browser client.
+   */
+  deleteReferenceLink?(
+    sessionId: string,
+    setId: string,
+    referenceId: string,
+  ): Promise<{ deleted: boolean; scope: 'pending' | 'sent' }>
 }
 
 declare module '@deepseek-ai/cordis' {

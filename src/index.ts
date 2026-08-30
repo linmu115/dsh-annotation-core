@@ -38,9 +38,24 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.profileId.trim().length === 0) throw new TypeError('profileId must not be empty')
   const opened = await openAnnotationStore(ctx, config.profileId)
   ctx.effect(() => async () => { await opened.close() }, 'annotation-core.domainClose')
-  const sources = new HostSourceRegistry(ctx)
-  const discardOutbox = new PendingDiscardOutbox(opened.store, sources)
-  const deleteOutbox = new CommittedDeleteOutbox(opened.store, sources)
+  let discardOutbox!: PendingDiscardOutbox
+  let deleteOutbox!: CommittedDeleteOutbox
+  const sources = new HostSourceRegistry(ctx, {
+    deleteReferenceLink: async (sessionId, setId, referenceId) => {
+      const state = opened.store.readPending(sessionId)
+      const result = await opened.store.deleteReferenceLink(sessionId, {
+        expectedRevision: state.revision,
+        setId,
+        referenceId,
+        deletedAt: Date.now(),
+      })
+      if (result.scope === 'pending') discardOutbox.kick(sessionId)
+      else deleteOutbox.kick(sessionId)
+      return { deleted: result.deleted, scope: result.scope }
+    },
+  })
+  discardOutbox = new PendingDiscardOutbox(opened.store, sources)
+  deleteOutbox = new CommittedDeleteOutbox(opened.store, sources)
   ctx.effect(() => {
     const unregister = sources.onAdapterRegistered(() => {
       discardOutbox.kickAll()

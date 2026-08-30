@@ -18,6 +18,14 @@ export type SourcePreparationErrorCode =
   | 'source-changed'
   | 'protocol-mismatch'
 
+export interface HostSourceRegistryOptions {
+  readonly deleteReferenceLink?: (
+    sessionId: string,
+    setId: string,
+    referenceId: string,
+  ) => Promise<{ deleted: boolean; scope: 'pending' | 'sent' }>
+}
+
 export class SourcePreparationError extends Error {
   constructor(readonly code: SourcePreparationErrorCode, message: string, options?: ErrorOptions) {
     super(message, options)
@@ -29,8 +37,19 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
   private readonly adapters = new Map<SourceType, HostSourceAdapter>()
   private readonly adapterListeners = new Set<(type: SourceType) => void>()
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, private readonly options: HostSourceRegistryOptions = {}) {
     super(ctx, 'annotationCoreHost')
+  }
+
+  async deleteReferenceLink(
+    sessionId: string,
+    setId: string,
+    referenceId: string,
+  ): Promise<{ deleted: boolean; scope: 'pending' | 'sent' }> {
+    if (this.options.deleteReferenceLink === undefined) {
+      throw new Error('Host-side reference deletion is not configured')
+    }
+    return this.options.deleteReferenceLink(sessionId, setId, referenceId)
   }
 
   registerSourceAdapter(type: SourceType, adapter: HostSourceAdapter): () => void {

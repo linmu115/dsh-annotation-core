@@ -18,7 +18,7 @@ import { ClientSourceRegistry } from './source-registry.ts'
 
 export interface ClientConfig { readonly profileId: string }
 
-const VERSION = '0.3.3'
+const VERSION = '0.3.4'
 type _ClientRemoteTypeRegistration = ClientRemote
 const FEATURES: readonly AnnotationCoreFeature[] = Object.freeze([
   'dsh-message-source-v1', 'embedded-composer-v1', 'embedded-conversation-node-v1', 'answer-link-v1', 'backlink-retry-v1',
