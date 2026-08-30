@@ -57,6 +57,8 @@ describe('pending reference discard outbox', () => {
       backlinkJobs: {},
     })
     expect(parsed.pendingDiscardJobs).toEqual({})
+    expect(parsed.committedDeleteJobs).toEqual({})
+    expect(parsed.deletedReferences).toEqual({})
   })
 
   it('removes the DSH pending item immediately and persists source cleanup work atomically', async () => {

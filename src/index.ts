@@ -5,6 +5,7 @@ import { HostSourceRegistry } from './host/source-registry.ts'
 import { openAnnotationStore } from './host/store.ts'
 import { BacklinkOutbox } from './host/backlink-outbox.ts'
 import { PendingDiscardOutbox } from './host/pending-discard-outbox.ts'
+import { CommittedDeleteOutbox } from './host/committed-delete-outbox.ts'
 import { registerAnnotationPreStep } from './host/pre-step.ts'
 import { SessionSettlementTracker, StartupSubmissionReconciler } from './host/session-reconcile.ts'
 import { AnnotationSubmissionCoordinator } from './host/submit-annotated.ts'
@@ -37,14 +38,35 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.profileId.trim().length === 0) throw new TypeError('profileId must not be empty')
   const opened = await openAnnotationStore(ctx, config.profileId)
   ctx.effect(() => async () => { await opened.close() }, 'annotation-core.domainClose')
-  const sources = new HostSourceRegistry(ctx)
-  const discardOutbox = new PendingDiscardOutbox(opened.store, sources)
+  let discardOutbox!: PendingDiscardOutbox
+  let deleteOutbox!: CommittedDeleteOutbox
+  const sources = new HostSourceRegistry(ctx, {
+    deleteReferenceLink: async (sessionId, setId, referenceId) => {
+      const state = opened.store.readPending(sessionId)
+      const result = await opened.store.deleteReferenceLink(sessionId, {
+        expectedRevision: state.revision,
+        setId,
+        referenceId,
+        deletedAt: Date.now(),
+      })
+      if (result.scope === 'pending') discardOutbox.kick(sessionId)
+      else deleteOutbox.kick(sessionId)
+      return { deleted: result.deleted, scope: result.scope }
+    },
+  })
+  discardOutbox = new PendingDiscardOutbox(opened.store, sources)
+  deleteOutbox = new CommittedDeleteOutbox(opened.store, sources)
   ctx.effect(() => {
-    const unregister = sources.onAdapterRegistered(() => { discardOutbox.kickAll() })
+    const unregister = sources.onAdapterRegistered(() => {
+      discardOutbox.kickAll()
+      deleteOutbox.kickAll()
+    })
     discardOutbox.start()
+    deleteOutbox.start()
     return () => {
       unregister()
       discardOutbox.dispose()
+      deleteOutbox.dispose()
     }
   }, 'annotation-core.pendingDiscardOutbox')
   // Direct unit callers may mount only the durable/read boundary. Normal Cordis
@@ -55,13 +77,13 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.get('systemPrompt') !== undefined &&
     ctx.get('attachments') !== undefined
   if (!completeRuntime) {
-    new AnnotationCoreRemoteService(ctx, opened.store, undefined, undefined, discardOutbox)
+    new AnnotationCoreRemoteService(ctx, opened.store, undefined, undefined, discardOutbox, deleteOutbox)
     return
   }
   const settlements = new SessionSettlementTracker(ctx)
   const outbox = new BacklinkOutbox(opened.store, sources)
   const submissions = new AnnotationSubmissionCoordinator(ctx, opened.store, sources, settlements, outbox)
-  new AnnotationCoreRemoteService(ctx, opened.store, submissions, outbox, discardOutbox)
+  new AnnotationCoreRemoteService(ctx, opened.store, submissions, outbox, discardOutbox, deleteOutbox)
   registerAnnotationPreStep(ctx, opened.store)
   registerAnnotationSystemPrompt(ctx)
   new StartupSubmissionReconciler(ctx, opened.store, outbox).start()

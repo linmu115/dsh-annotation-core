@@ -4,7 +4,7 @@ This file records author-side release evidence. Workshop verification and Regist
 
 ## Supported baseline
 
-- DeepSeek Harness: `0.1.1-rc.2`
+- DeepSeek Harness client: `0.1.2-alpha.1`
 - Profile: `web`
 - Node.js: 22 or later
 - Package manager: pnpm 11
@@ -25,7 +25,7 @@ Acceptance criteria:
 - installation does not require a local path dependency;
 - `pnpm test` builds the bundle before bundle-contract tests run;
 - all tests pass;
-- rc.2 probes use the official packages installed by the lockfile, or an assembled runtime selected with `DSH_RC2_RUNTIME_ROOT`;
+- client projection tests exercise the native `uiConversation.events` and Session-store contracts;
 - the packed file list contains every path declared by `main`, `types`, `exports`, and `files`;
 - the packed registry artifact contains prebuilt output and remains usable when consumer install scripts are disabled.
 

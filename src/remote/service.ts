@@ -7,6 +7,7 @@ import type { AnnotationStore } from '../host/store.ts'
 import { AggregateRevisionConflictError } from '../host/store.ts'
 import type { BacklinkOutbox } from '../host/backlink-outbox.ts'
 import type { PendingDiscardOutbox } from '../host/pending-discard-outbox.ts'
+import type { CommittedDeleteOutbox } from '../host/committed-delete-outbox.ts'
 import type {
   AnnotationSubmissionCoordinator,
   SubmitAnnotatedInput,
@@ -41,6 +42,13 @@ export interface RemoveReferenceRequest {
   readonly referenceId: string
 }
 
+export interface DeleteReferenceLinkRequest {
+  readonly expectedRevision: number
+  readonly setId: string
+  readonly referenceId: string
+  readonly deletedAt: number
+}
+
 export interface ReuseReferenceRequest {
   readonly expectedRevision: number
   readonly sourceReferenceId: string
@@ -70,6 +78,7 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
     readonly submissions?: AnnotationSubmissionCoordinator,
     readonly outbox?: BacklinkOutbox,
     readonly discardOutbox?: PendingDiscardOutbox,
+    readonly deleteOutbox?: CommittedDeleteOutbox,
   ) {
     super(ctx, 'annotationCore')
   }
@@ -99,6 +108,13 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
   async removeReference(agent: Agent, request: RemoveReferenceRequest): Promise<void> {
     await this.store.removeReference(agent.id, request)
     this.discardOutbox?.kick(agent.id)
+  }
+
+  async deleteReferenceLink(agent: Agent, request: DeleteReferenceLinkRequest) {
+    const result = await this.store.deleteReferenceLink(agent.id, request)
+    if (result.scope === 'pending') this.discardOutbox?.kick(agent.id)
+    else this.deleteOutbox?.kick(agent.id)
+    return result
   }
 
   reuseReference(agent: Agent, request: ReuseReferenceRequest) {

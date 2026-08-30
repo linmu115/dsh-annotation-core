@@ -131,7 +131,6 @@ export interface ComposerBindingOptions {
   readonly plainPort?: PlainComposerPort
   readonly onOpen?: (set: ReferenceSet, referenceId?: string) => void
   readonly onRemove?: (referenceId: string) => Promise<void>
-  readonly renderDialog?: () => React.ReactNode
 }
 
 function randomId(prefix: string): string {
@@ -341,15 +340,12 @@ export class ComposerBinding implements EmbeddedComposerHandle {
   }
 
   renderReferenceRail(): React.ReactNode {
-    return <>
-      <ReferenceRail
-        layout={this.options.layout}
-        store={this.store}
-        open={(set, referenceId) => this.options.onOpen?.(set, referenceId)}
-        remove={this.options.onRemove ?? (async () => { throw new Error('Reference mutation is unavailable') })}
-      />
-      {this.options.renderDialog?.()}
-    </>
+    return <ReferenceRail
+      layout={this.options.layout}
+      store={this.store}
+      open={(set, referenceId) => this.options.onOpen?.(set, referenceId)}
+      remove={this.options.onRemove ?? (async () => { throw new Error('Reference mutation is unavailable') })}
+    />
   }
 
   dispose(): void {

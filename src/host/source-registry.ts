@@ -6,6 +6,7 @@ import type { BacklinkReceiptV2 } from '../protocol/index.ts'
 import type { SourceType } from '../protocol/index.ts'
 import type {
   AnnotationCoreHost,
+  DeletedReferenceBinding,
   HostSourceAdapter,
   SentReferenceBinding,
 } from '../public/host-api.ts'
@@ -16,6 +17,14 @@ export type SourcePreparationErrorCode =
   | 'source-missing'
   | 'source-changed'
   | 'protocol-mismatch'
+
+export interface HostSourceRegistryOptions {
+  readonly deleteReferenceLink?: (
+    sessionId: string,
+    setId: string,
+    referenceId: string,
+  ) => Promise<{ deleted: boolean; scope: 'pending' | 'sent' }>
+}
 
 export class SourcePreparationError extends Error {
   constructor(readonly code: SourcePreparationErrorCode, message: string, options?: ErrorOptions) {
@@ -28,8 +37,19 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
   private readonly adapters = new Map<SourceType, HostSourceAdapter>()
   private readonly adapterListeners = new Set<(type: SourceType) => void>()
 
-  constructor(ctx: Context) {
+  constructor(ctx: Context, private readonly options: HostSourceRegistryOptions = {}) {
     super(ctx, 'annotationCoreHost')
+  }
+
+  async deleteReferenceLink(
+    sessionId: string,
+    setId: string,
+    referenceId: string,
+  ): Promise<{ deleted: boolean; scope: 'pending' | 'sent' }> {
+    if (this.options.deleteReferenceLink === undefined) {
+      throw new Error('Host-side reference deletion is not configured')
+    }
+    return this.options.deleteReferenceLink(sessionId, setId, referenceId)
   }
 
   registerSourceAdapter(type: SourceType, adapter: HostSourceAdapter): () => void {
@@ -69,5 +89,14 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
 
   async commitBacklink(binding: SentReferenceBinding): Promise<BacklinkReceiptV2 | undefined> {
     return this.adapters.get(binding.item.sourceType)?.commitBacklink?.(binding)
+  }
+
+  async deleteCommitted(binding: DeletedReferenceBinding): Promise<void> {
+    const adapter = this.adapters.get(binding.item.sourceType)
+    if (adapter?.deleteCommitted === undefined) {
+      if (binding.item.sourceType === 'dsh-message') return
+      throw new Error(`No committed-reference deletion adapter is registered for ${binding.item.sourceType}`)
+    }
+    await adapter.deleteCommitted(binding)
   }
 }

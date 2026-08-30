@@ -1,13 +1,30 @@
-import { conversationContextKey } from '@deepseek-ai/dsh-client-runtime/client'
-import type {
-  ChatConversationViewNode,
-  ConversationLocation,
-  ConversationNodeDefinition,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type { ChatNodeDataMap } from '@deepseek-ai/dsh-client-ui-conversation/client'
-
-type _ChatNodeDataMapRegistration = ChatNodeDataMap
+interface ConversationLocation { readonly kind: string; readonly [key: string]: unknown }
+interface SessionEventLike { readonly type: string; readonly seq: number; readonly data: unknown }
+interface ConversationMatch { readonly event: SessionEventLike; readonly location: ConversationLocation }
+interface ConversationNodeContext<State> {
+  readonly key: string
+  readonly id: string
+  readonly state?: State
+}
+interface ConversationNodeDefinition<State> {
+  readonly kind: string
+  readonly target: 'chat'
+  match(event: SessionEventLike): { readonly id: string; readonly role: 'start' } | null
+  start(context: ConversationNodeContext<State>, match: ConversationMatch): State
+  update(context: ConversationNodeContext<State>): State
+  publication(): 'immediate'
+  buildViewNode(context: ConversationNodeContext<State>): ChatConversationViewNode | null
+}
+interface ChatConversationViewNode {
+  readonly key: string
+  readonly kind: string
+  readonly id: string
+  readonly target: 'chat'
+  readonly anchorSeq: number
+  readonly location: ConversationLocation
+  readonly visibility: 'visible'
+  readonly data: AnnotationConversationData
+}
 
 export interface AnnotationConversationData {
   readonly contextMessageId: string
@@ -19,13 +36,13 @@ export interface AnnotationConversationData {
 
 export interface AnnotationConversationState extends AnnotationConversationData {
   readonly seq: number
-  readonly location: ConversationLocation
+  readonly sourceLocation: ConversationLocation
 }
 
-declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
-  interface ChatNodeDataMap {
-    'dsh-annotation': AnnotationConversationData
-  }
+const SESSION_LOCATION: ConversationLocation = Object.freeze({ kind: 'session' })
+
+function conversationContextKey(kind: string, id: string): string {
+  return `${kind.length}:${kind}${id}`
 }
 
 interface AnnotationSource {
@@ -36,7 +53,7 @@ interface AnnotationSource {
   readonly count: number
 }
 
-function annotationEvent(event: SessionEvent): { readonly id: string; readonly seq: number; readonly source: AnnotationSource } | undefined {
+function annotationEvent(event: SessionEventLike): { readonly id: string; readonly seq: number; readonly source: AnnotationSource } | undefined {
   if (event.type !== 'user/message') return undefined
   const data = event.data as { readonly id?: unknown; readonly source?: unknown }
   const source = data.source as Partial<AnnotationSource> | undefined
@@ -65,7 +82,7 @@ export const annotationConversationDefinition: ConversationNodeDefinition<Annota
       count: found.source.count,
       genericContextKey: conversationContextKey('input-message', found.id),
       seq: found.seq,
-      location: match.location,
+      sourceLocation: match.location,
     })
   },
   update(context) {
@@ -82,7 +99,11 @@ export const annotationConversationDefinition: ConversationNodeDefinition<Annota
       id: state.contextMessageId,
       target: 'chat',
       anchorSeq: state.seq,
-      location: state.location,
+      // DSH 0.1.2-alpha.1 folds every custom Turn-local Node into the answer's
+      // process window, even when its declared visibility is `visible`. Keep
+      // the durable annotation at the same ordering anchor but project it at
+      // Session scope so it remains independent of Turn-process disclosure.
+      location: SESSION_LOCATION,
       visibility: 'visible',
       data: {
         contextMessageId: state.contextMessageId,
@@ -103,7 +124,7 @@ function findExact(root: ParentNode, key: string): HTMLElement[] {
     .filter((element) => element.dataset.chatAnchorKey === key)
 }
 
-/** rc.2 compatibility hook: hide only the generic row with the exact exported context key. */
+/** Hide only the generic context row that represents the same durable annotation event. */
 export function suppressGenericAnnotationRow(key: string, root: Document | HTMLElement = document): () => void {
   const owned = new Set<HTMLElement>()
   const apply = () => {

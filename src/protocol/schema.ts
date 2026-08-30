@@ -111,6 +111,27 @@ export const ReferenceDiscardV2Schema = z.object({
   referenceId: NonEmptyStringSchema,
 }).strict()
 
+export const ReferenceDeleteRequestV2Schema = z.object({
+  ...ProtocolEnvelopeSchema,
+  type: z.literal('reference-delete-request'),
+  actionId: NonEmptyStringSchema,
+  referenceId: NonEmptyStringSchema,
+  profileId: NonEmptyStringSchema,
+  sessionId: NonEmptyStringSchema,
+  setId: NonEmptyStringSchema,
+  requestedAt: z.number().int().nonnegative(),
+}).strict()
+
+export const ReferenceDeleteCommitV2Schema = z.object({
+  ...ProtocolEnvelopeSchema,
+  type: z.literal('reference-delete-commit'),
+  referenceId: NonEmptyStringSchema,
+  profileId: NonEmptyStringSchema,
+  sessionId: NonEmptyStringSchema,
+  setId: NonEmptyStringSchema,
+  deletedAt: z.number().int().nonnegative(),
+}).strict()
+
 export const BacklinkCommitV2Schema = z.object({
   ...ProtocolEnvelopeSchema,
   type: z.literal('backlink-commit'),
@@ -145,5 +166,7 @@ export type ReferenceClaimV2 = z.infer<typeof ReferenceClaimV2Schema>
 export type ReferenceRefreshRequestV2 = z.infer<typeof ReferenceRefreshRequestV2Schema>
 export type ReferenceRefreshResultV2 = z.infer<typeof ReferenceRefreshResultV2Schema>
 export type ReferenceDiscardV2 = z.infer<typeof ReferenceDiscardV2Schema>
+export type ReferenceDeleteRequestV2 = z.infer<typeof ReferenceDeleteRequestV2Schema>
+export type ReferenceDeleteCommitV2 = z.infer<typeof ReferenceDeleteCommitV2Schema>
 export type BacklinkCommitV2 = z.infer<typeof BacklinkCommitV2Schema>
 export type BacklinkReceiptV2 = z.infer<typeof BacklinkReceiptV2Schema>
