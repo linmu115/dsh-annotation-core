@@ -8,6 +8,16 @@ const NonEmptyStringSchema = z.string().min(1)
 export const Sha256DigestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/)
 export const OccurrenceSchema = z.number().int().nonnegative()
 
+/** Stable Maintenance identity plus the native IDs needed by older DSH builds. */
+export const MaintenanceLogicalTargetSchema = z.object({
+  logicalSessionId: NonEmptyStringSchema.optional(),
+  logicalAnchorId: NonEmptyStringSchema.optional(),
+  legacySessionId: NonEmptyStringSchema.optional(),
+  legacyAnchorId: NonEmptyStringSchema.optional(),
+}).strict()
+
+const MaintenanceLogicalTargetShape = MaintenanceLogicalTargetSchema.shape
+
 export const DshMessageCaptureSchema = z.object({
   selectedText: NonEmptyStringSchema,
   sourceSessionId: NonEmptyStringSchema,
@@ -18,6 +28,7 @@ export const DshMessageCaptureSchema = z.object({
 }).strict()
 
 export const DshMessageLocatorSchema = z.object({
+  ...MaintenanceLogicalTargetShape,
   profileId: NonEmptyStringSchema,
   sessionId: NonEmptyStringSchema,
   messageId: NonEmptyStringSchema.optional(),
@@ -89,6 +100,7 @@ export const ReferenceClaimV2Schema = z.object({
   profileId: NonEmptyStringSchema,
   sessionId: NonEmptyStringSchema,
   setId: NonEmptyStringSchema,
+  ...MaintenanceLogicalTargetShape,
 }).strict()
 
 export const ReferenceRefreshRequestV2Schema = z.object({
@@ -120,6 +132,7 @@ export const ReferenceDeleteRequestV2Schema = z.object({
   sessionId: NonEmptyStringSchema,
   setId: NonEmptyStringSchema,
   requestedAt: z.number().int().nonnegative(),
+  ...MaintenanceLogicalTargetShape,
 }).strict()
 
 export const ReferenceDeleteCommitV2Schema = z.object({
@@ -130,6 +143,7 @@ export const ReferenceDeleteCommitV2Schema = z.object({
   sessionId: NonEmptyStringSchema,
   setId: NonEmptyStringSchema,
   deletedAt: z.number().int().nonnegative(),
+  ...MaintenanceLogicalTargetShape,
 }).strict()
 
 export const BacklinkCommitV2Schema = z.object({
@@ -142,6 +156,7 @@ export const BacklinkCommitV2Schema = z.object({
   userMessageId: NonEmptyStringSchema,
   userAnchorId: NonEmptyStringSchema,
   userTextHash: Sha256DigestSchema,
+  ...MaintenanceLogicalTargetShape,
 }).strict()
 
 export const BacklinkReceiptV2Schema = z.object({
@@ -154,6 +169,7 @@ export const BacklinkReceiptV2Schema = z.object({
 }).strict()
 
 export type SourceType = 'dsh-message' | 'obsidian-note'
+export type MaintenanceLogicalTarget = z.infer<typeof MaintenanceLogicalTargetSchema>
 export type DshMessageCapture = z.infer<typeof DshMessageCaptureSchema>
 export type DshMessageLocator = z.infer<typeof DshMessageLocatorSchema>
 export type ObsidianNoteLocator = z.infer<typeof ObsidianNoteLocatorSchema>

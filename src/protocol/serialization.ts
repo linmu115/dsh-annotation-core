@@ -3,6 +3,7 @@ import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { PreparedReferenceDocument } from '../domain/budget.ts'
 import type { ReferenceItem, ReferenceSet } from '../domain/model.ts'
 import type { BacklinkCommitV2 } from './schema.ts'
+import type { MaintenanceLogicalTarget } from './schema.ts'
 
 const SHA256_INITIAL = new Uint32Array([
   0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
@@ -154,6 +155,16 @@ export function canonicalJson(value: unknown): string {
 
 export function canonicalSha256(value: unknown): string {
   return `sha256:${sha256Hex(canonicalJson(value))}`
+}
+
+/** Canonical stable-link payload. Undefined legacy fields stay absent from signed envelopes. */
+export function serializeMaintenanceLogicalTarget(target: MaintenanceLogicalTarget): string {
+  return canonicalJson({
+    ...(target.logicalSessionId === undefined ? {} : { logicalSessionId: target.logicalSessionId }),
+    ...(target.logicalAnchorId === undefined ? {} : { logicalAnchorId: target.logicalAnchorId }),
+    ...(target.legacySessionId === undefined ? {} : { legacySessionId: target.legacySessionId }),
+    ...(target.legacyAnchorId === undefined ? {} : { legacyAnchorId: target.legacyAnchorId }),
+  })
 }
 
 export function backlinkCommitDigest(commit: BacklinkCommitV2): string {

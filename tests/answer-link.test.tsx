@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { parseAnnotationAnswerLink, resolveAnnotationAnswerLink } from '../src/client/answer-link.ts'
+import { parseAnnotationAnswerLink, resolveAnnotationAnswerLink, resolveAnnotationSessionTarget } from '../src/client/answer-link.ts'
 import type { ReferenceSet } from '../src/domain/model.ts'
 import { selectedTextHash } from '../src/protocol/index.ts'
 
@@ -32,6 +32,24 @@ function sentSet(): ReferenceSet {
 }
 
 describe('annotation answer links', () => {
+  it('resolves a stable logical target to the active projection and retains the legacy fallback', async () => {
+    const resolver = vi.fn(async () => ({ sessionId: 'session-alpha2', anchorId: 'anchor-alpha2' }))
+    await expect(resolveAnnotationSessionTarget({
+      logicalSessionId: 'logical-session-1',
+      logicalAnchorId: 'logical-anchor-1',
+      sessionId: 'session-alpha1',
+      anchorId: 'anchor-alpha1',
+    }, resolver)).resolves.toEqual({ sessionId: 'session-alpha2', anchorId: 'anchor-alpha2' })
+    expect(resolver).toHaveBeenCalledWith({
+      logicalSessionId: 'logical-session-1',
+      logicalAnchorId: 'logical-anchor-1',
+      legacySessionId: 'session-alpha1',
+      legacyAnchorId: 'anchor-alpha1',
+    })
+    await expect(resolveAnnotationSessionTarget({
+      logicalSessionId: 'logical-session-1', sessionId: 'session-alpha1', anchorId: 'anchor-alpha1',
+    }, async () => undefined)).resolves.toEqual({ sessionId: 'session-alpha1', anchorId: 'anchor-alpha1' })
+  })
   it('parses the last numeric segment without truncating dashed set IDs', () => {
     expect(parseAnnotationAnswerLink('#dsh-annotation-set-with-dashes-12')).toEqual({ setId: 'set-with-dashes', number: 12 })
   })
