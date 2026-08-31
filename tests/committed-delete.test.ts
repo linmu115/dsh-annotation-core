@@ -82,6 +82,28 @@ describe('committed bidirectional reference deletion', () => {
     })).resolves.toMatchObject({ deleted: false, scope: 'sent' })
   })
 
+  it('acknowledges an already-absent committed relation without changing state', async () => {
+    const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
+    const before = store.read('session')
+
+    await expect(store.deleteReferenceLink('session', {
+      expectedRevision: 99,
+      setId: 'set-already-gone', referenceId: 'reference-already-gone', deletedAt: 20,
+    })).resolves.toEqual({ revision: before.revision, deleted: false, scope: 'sent' })
+    expect(store.read('session')).toEqual(before)
+  })
+
+  it('keeps reference identity protection when an absent target points at another live set', async () => {
+    const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
+    await commit(store, [{ id: 'reference-1', source: dshSource('first') }])
+
+    await expect(store.deleteReferenceLink('session', {
+      expectedRevision: store.read('session').revision,
+      setId: 'set-wrong', referenceId: 'reference-1', deletedAt: 20,
+    })).rejects.toThrow('Live reference identity does not match the requested set')
+    expect(store.readSentSet('session', 'set-1')?.items).toHaveLength(1)
+  })
+
   it('persists cross-app cleanup until the source adapter acknowledges it', async () => {
     const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
     await commit(store, [{ id: 'reference-1', source: obsidianSource() }])
