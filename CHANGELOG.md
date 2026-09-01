@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.6 - 2026-09-01
+
+- Treat `@deepseek-ai/schemastery` as a DSH host capability instead of a
+  plugin-owned runtime dependency.
+- Declare an open optional peer so experimental Harness combinations remain
+  selectable without making pnpm install a second core package tree.
+- Keep Alpha2 `3.18.2` as a development-only compiler and test dependency.
+
+Focused verification: package manifest contract, typecheck, build and package
+dry run.
+
 ## 0.3.5 - 2026-08-31
 
 - Add stable `logicalSessionId` and `logicalAnchorId` fields to annotation links while retaining native session and anchor fallbacks.
