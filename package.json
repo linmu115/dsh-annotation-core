@@ -50,6 +50,7 @@
     "cordis.patch.yml",
     "docs/changes",
     "docs/release/verification.md",
+    "CHANGELOG.md",
     "README.md",
     "README_EN.md",
     "LICENSE"
