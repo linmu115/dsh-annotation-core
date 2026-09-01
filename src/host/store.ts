@@ -682,11 +682,23 @@ export class AnnotationStore {
           value: { revision: aggregate.revision, deleted: false, scope: tombstone.scope },
         }
       }
-      assertExpected(aggregate, input.expectedRevision)
+
+      const liveSet = [aggregate.pending, ...aggregate.sentSets]
+        .find((set) => set?.items.some((item) => item.referenceId === input.referenceId))
+      if (liveSet !== undefined && liveSet.setId !== input.setId) {
+        throw new Error('Live reference identity does not match the requested set')
+      }
 
       if (aggregate.pending?.setId === input.setId) {
         const item = aggregate.pending.items.find((candidate) => candidate.referenceId === input.referenceId)
-        if (item === undefined) throw new RangeError(`Unknown reference ${JSON.stringify(input.referenceId)}`)
+        if (item === undefined) {
+          return {
+            changed: false,
+            aggregate,
+            value: { revision: aggregate.revision, deleted: false, scope: 'pending' as const },
+          }
+        }
+        assertExpected(aggregate, input.expectedRevision)
         let pending: ReferenceSet | undefined = removeReferenceFromSet(
           aggregate.pending,
           input.referenceId,
@@ -714,10 +726,23 @@ export class AnnotationStore {
       }
 
       const setIndex = aggregate.sentSets.findIndex((candidate) => candidate.setId === input.setId)
-      if (setIndex < 0) throw new RangeError(`Unknown sent reference set ${JSON.stringify(input.setId)}`)
+      if (setIndex < 0) {
+        return {
+          changed: false,
+          aggregate,
+          value: { revision: aggregate.revision, deleted: false, scope: 'sent' as const },
+        }
+      }
       const sent = aggregate.sentSets[setIndex] as ReferenceSet
       const item = sent.items.find((candidate) => candidate.referenceId === input.referenceId)
-      if (item === undefined) throw new RangeError(`Unknown reference ${JSON.stringify(input.referenceId)}`)
+      if (item === undefined) {
+        return {
+          changed: false,
+          aggregate,
+          value: { revision: aggregate.revision, deleted: false, scope: 'sent' as const },
+        }
+      }
+      assertExpected(aggregate, input.expectedRevision)
       const remaining = sent.items.filter((candidate) => candidate.referenceId !== input.referenceId)
       const sentSets = [...aggregate.sentSets]
       if (remaining.length === 0) sentSets.splice(setIndex, 1)
