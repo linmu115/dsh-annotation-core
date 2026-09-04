@@ -16,7 +16,7 @@ describe('annotation core client bundle contract', () => {
       dshKnowledge: { annotationProtocolVersion: number }
       dshWorkshop: { compatibility?: unknown }
     }
-    expect(pkg.version).toBe('0.3.6')
+    expect(pkg.version).toBe('0.3.7')
     expect(Object.keys(pkg.exports)).toEqual(expect.arrayContaining([
       '.', './client', './protocol', './client-api', './host-api', './typert', './remote', './package.json',
     ]))

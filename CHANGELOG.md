@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.7 - 2026-09-04
+
+- Target the DSH 0.1.2-rc.1 session contract without retaining an older
+  Harness compatibility branch.
+- Replace removed `Session.events` reads with immutable
+  `Session.snapshotEvents()` snapshots during submission settlement and
+  startup reconciliation.
+- Preserve the RC1-branded `SessionSeq` from the observed user event through
+  `sourceEventSeqs`, instead of narrowing it to an unbranded number.
+- Pin the RC1 development packages and Zod 4.4.3 so the suite is compiled
+  against one host type identity.
+
+The Annotation Core Host API, immediate-local/background-remote deletion
+settlement, annotation projection visibility, and prompt admission semantics
+are unchanged.
+
 ## 0.3.6 - 2026-09-01
 
 - Treat `@deepseek-ai/schemastery` as a DSH host capability instead of a

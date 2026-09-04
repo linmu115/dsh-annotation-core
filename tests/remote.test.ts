@@ -54,10 +54,11 @@ function mountAgentBoundary(ctx: Context, store: AnnotationStore) {
   ctx.typert.contexts.registerHost('agent', {
     wire: 'agentId',
     wireTypeSymbol: '@deepseek-ai/dsh-session/types#SessionId',
+    identity: (candidate) => candidate === ctx ? SessionId('session-1') : undefined,
     resolve: (id) => id === 'session-1' ? ctx : undefined,
   })
   ctx.typert.register(TYPERT)
-  return new TypertGatewayService(ctx)
+  return new TypertGatewayService(ctx, {})
 }
 
 describe('annotation core Typert boundary', () => {
@@ -109,7 +110,10 @@ describe('annotation core Typert boundary', () => {
       signal: abort.signal,
     })
     abort.abort()
-    await expect(waiting).rejects.toMatchObject({ name: 'RemoteInvocationCancelled' })
+    await expect(waiting).rejects.toMatchObject({
+      name: 'RemoteError',
+      code: 'gateway/cancelled',
+    })
   })
 
   it('mounts the Client descriptor explicitly and unwraps a real RemoteResult round trip', async () => {
@@ -120,8 +124,13 @@ describe('annotation core Typert boundary', () => {
     )
     const clientCtx = new Context()
     new TypertRegistry(clientCtx)
-    clientCtx.typert.contexts.registerClient('agent', { identity: () => SessionId('session-1') })
+    clientCtx.typert.contexts.registerClient('agent', {
+      identity: () => SessionId('session-1'),
+      resolve: (id) => id === 'session-1' ? clientCtx : undefined,
+    })
     clientCtx.provide('connection', {
+      registerGenerationSource: () => () => {},
+      start: () => ({ stop: () => {} }),
       rpc: {
         async call(_route: string, endpoint: string, body: { args: Record<string, unknown> }, signal: AbortSignal) {
           const separator = endpoint.indexOf('/')

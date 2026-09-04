@@ -170,7 +170,7 @@ describe('Host annotated submission transaction', () => {
     expect(f.sends[0]?.message.source).toEqual({ kind: 'user' })
     let settled = false
     void operation.then(() => { settled = true })
-    await vi.waitFor(() => { expect(f.session.events.filter((event) => event.type === 'user/message')).toHaveLength(2) })
+    await vi.waitFor(() => { expect(f.session.snapshotEvents().filter((event) => event.type === 'user/message')).toHaveLength(2) })
     expect(settled).toBe(false)
     f.flushGate.resolve()
     await expect(operation).resolves.toMatchObject({ kind: 'success', setId: 'set' })
