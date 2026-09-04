@@ -128,6 +128,6 @@ describe('session durability settlement', () => {
     expect(store.readAdmission(session.id, 'submission')?.state).toBe('durable')
     expect(store.readSentSet(session.id, 'set')?.state).toBe('sent')
     await reconciler.reconcile(agent)
-    expect(session.events.filter((event) => event.type === 'user/message')).toHaveLength(2)
+    expect(session.snapshotEvents().filter((event) => event.type === 'user/message')).toHaveLength(2)
   })
 })

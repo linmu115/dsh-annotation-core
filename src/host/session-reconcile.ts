@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionSeq } from '@deepseek-ai/dsh-session'
 
 import type { BacklinkOutbox } from './backlink-outbox.ts'
 import { createAnnotationContextMessage } from './commit-journal.ts'
@@ -65,11 +65,11 @@ export function scanSubmissionEvents(
   session: Session,
   userMessageId: string,
   contextMessageId?: string,
-): { userObserved: boolean; contextObserved: boolean; userSeq?: number } {
+): { userObserved: boolean; contextObserved: boolean; userSeq?: SessionSeq } {
   let userObserved = false
   let contextObserved = contextMessageId === undefined
-  let userSeq: number | undefined
-  for (const event of session.events) {
+  let userSeq: SessionSeq | undefined
+  for (const event of session.snapshotEvents()) {
     const messageId = targetMessageId(event)
     if (messageId === userMessageId) {
       userObserved = true
@@ -245,7 +245,7 @@ export class StartupSubmissionReconciler {
         await this.failTerminal(agent.id, admission, new Error('Prepared annotation context cannot be reconstructed'))
         return
       }
-      const hasLaterAssistant = agent.session.events.some(
+      const hasLaterAssistant = agent.session.snapshotEvents().some(
         (event) => event.seq > found.userSeq! && event.type === 'assistant/message',
       )
       if (hasLaterAssistant) {
