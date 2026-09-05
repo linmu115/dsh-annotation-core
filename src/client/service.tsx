@@ -107,9 +107,9 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     return unwrapRemote(await remote.fenceReferenceOperation({ expectedRevision: state.revision, operationId }))
   }
 
-  async discardPendingOperation(sessionId: string, operationId: string): Promise<void> {
+  async discardPendingOperation(sessionId: string, operationId: string, options: { notifySource?: boolean } = {}): Promise<void> {
     const remote = this.remote(sessionId); const state = unwrapRemote(await remote.readPending())
-    unwrapRemote(await remote.discardPendingOperation({ expectedRevision: state.revision, operationId }))
+    unwrapRemote(await remote.discardPendingOperation({ expectedRevision: state.revision, operationId, ...options }))
   }
 
   async updateComment(sessionId: string, referenceId: string, comment: string): Promise<void> {

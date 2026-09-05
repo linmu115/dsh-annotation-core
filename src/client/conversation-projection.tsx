@@ -116,44 +116,4 @@ export const annotationConversationDefinition: ConversationNodeDefinition<Annota
   },
 }
 
-interface SuppressionRecord { count: number; originalHidden: boolean }
-const suppressions = new WeakMap<HTMLElement, SuppressionRecord>()
-
-function findExact(root: ParentNode, key: string): HTMLElement[] {
-  return [...root.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')]
-    .filter((element) => element.dataset.chatAnchorKey === key)
-}
-
-/** Hide only the generic context row that represents the same durable annotation event. */
-export function suppressGenericAnnotationRow(key: string, root: Document | HTMLElement = document): () => void {
-  const owned = new Set<HTMLElement>()
-  const apply = () => {
-    for (const element of findExact(root, key)) {
-      if (owned.has(element)) continue
-      const record = suppressions.get(element)
-      if (record === undefined) {
-        suppressions.set(element, { count: 1, originalHidden: element.hidden })
-        element.hidden = true
-      } else {
-        record.count += 1
-      }
-      owned.add(element)
-    }
-  }
-  apply()
-  const observer = typeof MutationObserver === 'undefined' ? undefined : new MutationObserver(apply)
-  observer?.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-chat-anchor-key'] })
-  return () => {
-    observer?.disconnect()
-    for (const element of owned) {
-      const record = suppressions.get(element)
-      if (record === undefined) continue
-      record.count -= 1
-      if (record.count === 0) {
-        element.hidden = record.originalHidden
-        suppressions.delete(element)
-      }
-    }
-    owned.clear()
-  }
-}
+export { suppressGenericAnnotationRow } from './anchor-suppression.ts'

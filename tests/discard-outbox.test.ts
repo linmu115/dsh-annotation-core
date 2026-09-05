@@ -164,3 +164,31 @@ describe('pending reference discard outbox', () => {
     outbox.dispose()
   })
 })
+
+describe('local-only claim rollback', () => {
+  it('removes the losing add without scheduling global source cancellation and remains idempotent', async () => {
+    const store = await storeWithPending()
+    await store.discardPendingOperation('session', { expectedRevision: 1, operationId: 'operation-1', notifySource: false })
+    expect(store.readPending('session').pending).toBeUndefined()
+    expect(store.listPendingDiscardJobs('session')).toEqual([])
+    const revision = store.readPending('session').revision
+    await store.discardPendingOperation('session', { expectedRevision: revision, operationId: 'operation-1', notifySource: false })
+    expect(store.readPending('session').revision).toBe(revision)
+    expect(store.listPendingDiscardJobs('session')).toEqual([])
+  })
+  it('validates the additive option as a boolean at the remote boundary', async () => {
+    const { TYPERT_REMOTE } = await import('../src/remote/typert.ts')
+    const descriptor = TYPERT_REMOTE.descriptors.find((item) => item.method === 'discardPendingOperation')!
+    const codec = descriptor.parameters.find((item) => item.name === 'request')!.codec as unknown as { schema: { safeParse(value: unknown): { success: boolean } } }
+    expect(codec.schema.safeParse({ expectedRevision: 1, operationId: 'operation-1', notifySource: false }).success).toBe(true)
+    expect(codec.schema.safeParse({ expectedRevision: 1, operationId: 'operation-1', notifySource: 'false' }).success).toBe(false)
+  })
+})
+
+it('rechecks local-only rollback against a newer revision without touching source cleanup', async () => {
+  const store = await storeWithPending()
+  const service = new AnnotationCoreRemoteService(new Context(), store)
+  await service.discardPendingOperation({ id: 'session' } as never, { expectedRevision: 0, operationId: 'operation-1', notifySource: false })
+  expect(store.readPending('session').pending).toBeUndefined()
+  expect(store.listPendingDiscardJobs('session')).toEqual([])
+})

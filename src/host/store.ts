@@ -457,21 +457,26 @@ export class AnnotationStore {
     return `${this.options.profileId}:${sessionId}`
   }
 
-  read(sessionId: string): SessionAggregate {
+  /** Internal synchronous view. Never mutate or return its nested values without cloning. */
+  private readStored(sessionId: string): SessionAggregate {
     this.assertOpen()
     const stored = this.table.get(this.key(sessionId))
     if (stored === undefined) return emptyAggregate(this.options.profileId, sessionId)
     assertIdentity(stored, this.options.profileId, sessionId)
-    return clone(stored)
+    return stored
+  }
+
+  read(sessionId: string): SessionAggregate {
+    return clone(this.readStored(sessionId))
   }
 
   readPending(sessionId: string): { revision: number; pending: ReferenceSet | undefined } {
-    const aggregate = this.read(sessionId)
+    const aggregate = this.readStored(sessionId)
     return { revision: aggregate.revision, pending: aggregate.pending === undefined ? undefined : clone(aggregate.pending) }
   }
 
   readPendingState(sessionId: string): { revision: number; pendingCount: number } {
-    const aggregate = this.read(sessionId)
+    const aggregate = this.readStored(sessionId)
     return { revision: aggregate.revision, pendingCount: aggregate.pending?.items.length ?? 0 }
   }
 
@@ -584,6 +589,7 @@ export class AnnotationStore {
     expectedRevision: number
     operationId: string
     now?: number
+    notifySource?: boolean
   }): Promise<{ revision: number; pendingCount: number }> {
     return this.mutate(sessionId, (aggregate) => {
       assertExpected(aggregate, input.expectedRevision)
@@ -604,7 +610,7 @@ export class AnnotationStore {
         if (!retainedByAnotherOperation && item !== undefined && canonicalSha256(sourceFromItem(item)) === operation.sourceDigest) {
           pending = removeReferenceFromSet(pending, operation.referenceId, pending.revision)
           if (pending.items.length === 0) pending = undefined
-          pendingDiscardJobs = withPendingDiscardJob(aggregate, item, input.now ?? Date.now())
+          if (input.notifySource !== false) pendingDiscardJobs = withPendingDiscardJob(aggregate, item, input.now ?? Date.now())
         }
       }
       const revision = aggregate.revision + 1
@@ -786,7 +792,7 @@ export class AnnotationStore {
   }
 
   listPendingDiscardJobs(sessionId: string): readonly PendingDiscardJob[] {
-    return Object.values(this.read(sessionId).pendingDiscardJobs).map(clone)
+    return Object.values(this.readStored(sessionId).pendingDiscardJobs).map(clone)
   }
 
   async recordPendingDiscardFailure(sessionId: string, input: {
@@ -836,7 +842,7 @@ export class AnnotationStore {
   }
 
   listCommittedDeleteJobs(sessionId: string): readonly CommittedDeleteJob[] {
-    return Object.values(this.read(sessionId).committedDeleteJobs).map(clone)
+    return Object.values(this.readStored(sessionId).committedDeleteJobs).map(clone)
   }
 
   async recordCommittedDeleteFailure(sessionId: string, input: {
@@ -1026,7 +1032,7 @@ export class AnnotationStore {
   }
 
   readAdmission(sessionId: string, clientSubmissionId: string): AdmissionRecord | undefined {
-    const record = this.read(sessionId).admissions[clientSubmissionId]
+    const record = this.readStored(sessionId).admissions[clientSubmissionId]
     return record === undefined ? undefined : clone(record)
   }
 
@@ -1231,7 +1237,7 @@ export class AnnotationStore {
   }
 
   readSubmissionJournal(sessionId: string, userMessageId: string): SubmissionJournalEntry | undefined {
-    const entry = this.read(sessionId).submissionJournal[userMessageId]
+    const entry = this.readStored(sessionId).submissionJournal[userMessageId]
     return entry === undefined ? undefined : clone(entry)
   }
 
@@ -1349,7 +1355,7 @@ export class AnnotationStore {
   }
 
   listBacklinkJobs(sessionId: string): readonly BacklinkJob[] {
-    return Object.values(this.read(sessionId).backlinkJobs).map(clone)
+    return Object.values(this.readStored(sessionId).backlinkJobs).map(clone)
   }
 
   async recordBacklinkResult(sessionId: string, input: {
@@ -1538,12 +1544,12 @@ export class AnnotationStore {
   }
 
   readSentSet(sessionId: string, setId: string): ReferenceSet | undefined {
-    const set = this.read(sessionId).sentSets.find((candidate) => candidate.setId === setId)
+    const set = this.readStored(sessionId).sentSets.find((candidate) => candidate.setId === setId)
     return set === undefined ? undefined : clone(set)
   }
 
   listSentForSession(sessionId: string): readonly ReferenceSet[] {
-    return clone(this.read(sessionId).sentSets)
+    return clone(this.readStored(sessionId).sentSets)
   }
 
   waitRevision(

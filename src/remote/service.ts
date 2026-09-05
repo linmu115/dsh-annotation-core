@@ -29,7 +29,10 @@ export interface FenceReferenceOperationRequest {
   readonly operationId: string
 }
 
-export interface DiscardPendingOperationRequest extends FenceReferenceOperationRequest {}
+export interface DiscardPendingOperationRequest extends FenceReferenceOperationRequest {
+  /** False rolls back only a losing local add; it must not cancel the winning source. */
+  notifySource?: boolean
+}
 
 export interface UpdateCommentRequest {
   readonly expectedRevision: number
@@ -97,8 +100,19 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
   }
 
   async discardPendingOperation(agent: Agent, request: DiscardPendingOperationRequest): Promise<void> {
-    await this.store.discardPendingOperation(agent.id, request)
-    this.discardOutbox?.kick(agent.id)
+    let current = request
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await this.store.discardPendingOperation(agent.id, current)
+        break
+      } catch (error) {
+        if (request.notifySource !== false || !(error instanceof AggregateRevisionConflictError) || attempt >= 3) throw error
+        // A losing claim is identified by operation ID; recheck it against the newest
+        // local revision if unrelated edits arrived while its rollback was pending.
+        current = { ...request, expectedRevision: this.store.readPendingState(agent.id).revision }
+      }
+    }
+    if (request.notifySource !== false) this.discardOutbox?.kick(agent.id)
   }
 
   async updateComment(agent: Agent, request: UpdateCommentRequest): Promise<void> {

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.8 - Unreleased
+
+- Add an explicit `notifySource: false` rollback option for losing cross-consumer claims, preserving local revision/idempotence without scheduling a global reference discard.
+
+- Read pending summaries, individual submissions, and durable retry lanes without
+  copying unrelated sent-reference history. Public read results remain detached;
+  serialized writes, revision checks, and durable outbox settlement are unchanged.
+- Share one DOM observer and anchor index per conversation root. Coalesce mutation
+  deliveries, update affected subtrees and keys, and correctly release suppression
+  after duplicate subscriptions, rekeys, removals, and remounts.
+- Add behavior and operation-count regressions at 50/200/500 conversation rows and
+  0/100/1000 historical sets.
+
+No data migration is required. Existing consumers retain their default discard behavior. The on-disk aggregate
+format and logical reference, event, and deletion identities remain unchanged.
+
 ## 0.3.7 - 2026-09-04
 
 - Target the DSH 0.1.2-rc.1 session contract without retaining an older

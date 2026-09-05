@@ -104,7 +104,7 @@ export const ANNOTATION_CORE_REMOTE_DESCRIPTORS: readonly InvocationDescriptor[]
   descriptor('readPending', [], unknownCodec('dsh-annotation-core#ReadPendingResult')),
   descriptor('addReference', [jsonParameter('request', AddReferenceRequestSchema)], unknownCodec('dsh-annotation-core#AddReferenceResult')),
   descriptor('fenceReferenceOperation', [jsonParameter('request', FenceRequestSchema)], unknownCodec('dsh-annotation-core#FenceResult')),
-  descriptor('discardPendingOperation', [jsonParameter('request', FenceRequestSchema)], voidCodec('void')),
+  descriptor('discardPendingOperation', [jsonParameter('request', FenceRequestSchema.extend({ notifySource: z.boolean().optional() }))], voidCodec('void')),
   descriptor('updateComment', [jsonParameter('request', UpdateCommentRequestSchema)], voidCodec('void')),
   descriptor('removeReference', [jsonParameter('request', RemoveReferenceRequestSchema)], voidCodec('void')),
   descriptor('reuseReference', [jsonParameter('request', ReuseReferenceRequestSchema)], unknownCodec('dsh-annotation-core#ReuseReferenceResult')),

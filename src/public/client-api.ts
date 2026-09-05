@@ -71,7 +71,7 @@ export interface AnnotationCoreClient {
     sessionId: string,
     operationId: string,
   ): Promise<{ state: 'canceled' | 'committed' | 'failed'; fenceRevision: number }>
-  discardPendingOperation(sessionId: string, operationId: string): Promise<void>
+  discardPendingOperation(sessionId: string, operationId: string, options?: { notifySource?: boolean }): Promise<void>
   updateComment(sessionId: string, referenceId: string, comment: string): Promise<void>
   removeReference(sessionId: string, referenceId: string): Promise<void>
   deleteReferenceLink(
