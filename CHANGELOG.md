@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.9 - 2026-09-07
+
+- Confirm pending relation deletions with their persisted session, set and reference identity. Existing failed discard jobs recover from their matching tombstones after restart without a storage migration.
+- Preserve ordinary capture cancellation and keep mismatched or unacknowledged deletions durable for retry.
+
 ## 0.3.8 - Unreleased
 
 - Add an explicit `notifySource: false` rollback option for losing cross-consumer claims, preserving local revision/idempotence without scheduling a global reference discard.

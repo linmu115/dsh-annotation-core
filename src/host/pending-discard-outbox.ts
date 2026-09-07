@@ -65,10 +65,28 @@ export class PendingDiscardOutbox {
   }
 
   private async discard(sessionId: string, job: PendingDiscardJob): Promise<void> {
-    const adapter = this.sources.get(job.item.sourceType)
-    if (adapter?.discardPending === undefined) return
     try {
-      await adapter.discardPending(job.item)
+      const deletion = this.store.readDeletedReference(sessionId, job.referenceId)
+      if (deletion !== undefined) {
+        if (deletion.scope !== 'pending' || deletion.referenceId !== job.referenceId ||
+          job.item.referenceId !== job.referenceId || deletion.sourceType !== job.item.sourceType) {
+          throw new Error('Pending discard job does not match its deleted reference identity')
+        }
+        // A persisted relation deletion needs an exact acknowledgement. This
+        // also repairs old discard jobs without changing their stored format.
+        await this.sources.deleteCommitted({
+          profileId: this.store.options.profileId,
+          sessionId,
+          setId: deletion.setId,
+          referenceId: job.referenceId,
+          deletedAt: deletion.deletedAt,
+          item: job.item,
+        })
+      } else {
+        const adapter = this.sources.get(job.item.sourceType)
+        if (adapter?.discardPending === undefined) return
+        await adapter.discardPending(job.item)
+      }
       await this.complete(sessionId, job.referenceId)
     } catch (error) {
       await this.recordFailure(sessionId, job.referenceId, errorText(error))

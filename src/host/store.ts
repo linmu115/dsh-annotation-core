@@ -791,6 +791,10 @@ export class AnnotationStore {
     })
   }
 
+  readDeletedReference(sessionId: string, referenceId: string): DeletedReferenceRecord | undefined {
+    return clone(this.readStored(sessionId).deletedReferences[referenceId])
+  }
+
   listPendingDiscardJobs(sessionId: string): readonly PendingDiscardJob[] {
     return Object.values(this.readStored(sessionId).pendingDiscardJobs).map(clone)
   }

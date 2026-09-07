@@ -25,6 +25,7 @@ export interface HostSourceAdapter {
   prepare(item: ReferenceItem, signal: AbortSignal): Promise<ReferenceItem>
   discardPending?(item: ReferenceItem): Promise<void>
   commitBacklink?(binding: SentReferenceBinding): Promise<BacklinkReceiptV2>
+  /** Confirm a durably deleted relation, including a pending relation tombstone. */
   deleteCommitted?(binding: DeletedReferenceBinding): Promise<void>
 }
 
