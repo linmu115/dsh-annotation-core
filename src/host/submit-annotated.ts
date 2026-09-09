@@ -85,7 +85,9 @@ function prepareFailure(result: Exclude<PrepareResult, { kind: 'ready' }>): Subm
   return {
     kind: 'error',
     code: 'source-blocked',
-    message: `Annotation source preparation was blocked: ${result.reason}`,
+    message: result.reason === 'over-budget'
+      ? `引用内容超出预算：预计 ${result.details[0]?.totalEstimatedTokens ?? 0} token，额度 ${result.details[0]?.limit ?? 0} token。当前引用会附带整篇笔记，不仅是选中文字；请缩小笔记内容或选择上下文更大的模型。`
+      : `引用来源准备失败：${result.reason}`,
     details: result,
   }
 }
@@ -134,7 +136,8 @@ export class AnnotationSubmissionCoordinator {
     if (pending.pending?.setId !== input.setId || pending.pending.revision !== input.referenceRevision) {
       throw new AggregateRevisionConflictError(input.referenceRevision, pending.pending?.revision ?? -1)
     }
-    const selection = selectedModel(agent)
+    const defaults = this.ctx.get('agentDefaultModel' as never) as { currentSelection(): { provider: string; model: string } } | undefined
+    const selection = selectedModel(agent) ?? defaults?.currentSelection()
     const model = selection === undefined ? undefined : await this.ctx.get('llm')?.resolveModelInfo(selection.provider, selection.model, signal)
     const contextWindow = model?.context?.contextWindow
     const prepared = await prepareReferenceSet(pending.pending, this.sources, {

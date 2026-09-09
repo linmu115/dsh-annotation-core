@@ -167,6 +167,16 @@ function annotatedRequest(store: AnnotationStore, sessionId: string, overrides: 
 }
 
 describe('Host annotated submission transaction', () => {
+  it('uses the host default model budget before any explicit model selection', async () => {
+    const f = fixture()
+    const get = f.ctx.get.bind(f.ctx)
+    const resolveModelInfo = vi.fn(async () => ({context:{contextWindow:1000000}}))
+    vi.spyOn(f.ctx, 'get').mockImplementation(((name: string) => name === 'agentDefaultModel' ? {currentSelection:()=>({provider:'native',model:'large'})} : name === 'llm' ? {resolveModelInfo} : get(name as never)) as typeof f.ctx.get)
+    await addReference(f.store, f.session.id, '字'.repeat(14000))
+    const result = await f.coordinator.submitAnnotated(f.agent, annotatedRequest(f.store, f.session.id))
+    expect(resolveModelInfo).toHaveBeenCalledWith('native','large',undefined)
+    expect(result.kind).toBe('success')
+  })
   it('retains the reference draft when executor input admission rejects the complete proposed input', async () => {
     const f = fixture()
     await addReference(f.store, f.session.id)
