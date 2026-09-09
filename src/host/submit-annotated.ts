@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { agentEvents, getModelSelection, readExecutionState } from '@deepseek-ai/dsh-agent'
+import { previewAgentInput, getModelSelection, readExecutionState } from '@deepseek-ai/dsh-agent'
 import { createAnnotationContextMessage } from './commit-journal.ts'
 
 import { beginReferenceCommit } from '../domain/state-machine.ts'
@@ -182,7 +182,7 @@ export class AnnotationSubmissionCoordinator {
       const context = createAnnotationContextMessage(agent.id, { userMessageId: message.id,
         clientSubmissionId: input.clientSubmissionId, requestDigest: input.requestDigest,
         setId: input.setId, contextMessageId, contextDigest: serialized.digest, preparedSet, createdAt: input.createdAt })
-      await agentEvents(this.ctx, agent).serial('agent/input-admission', { messages: [message, context], signal: signal ?? new AbortController().signal })
+      await previewAgentInput(this.ctx, agent, [message, context], signal ?? new AbortController().signal)
     } catch (error) {
       await this.failTerminal(agent.id, input.clientSubmissionId, error)
       return { kind: 'error', code: 'delivery', message: errorText(error) }
@@ -235,7 +235,7 @@ export class AnnotationSubmissionCoordinator {
       return { kind: 'error', code: 'image-admission', message: errorText(error) }
     }
     try {
-      await agentEvents(this.ctx, agent).serial('agent/input-admission', { messages: [message], signal: signal ?? new AbortController().signal })
+      await previewAgentInput(this.ctx, agent, [message], signal ?? new AbortController().signal)
     } catch (error) {
       await this.failTerminal(agent.id, input.clientSubmissionId, error)
       return { kind: 'error', code: 'delivery', message: errorText(error) }
