@@ -38,6 +38,28 @@ async function sentStore() {
 }
 
 describe('durable backlink outbox', () => {
+  it('queues cleanup for a late write and prevents an earlier delete receipt from removing it', async () => {
+    const store = await sentStore()
+    const registry = new HostSourceRegistry(new Context())
+    const waiting = Promise.withResolvers<void>()
+    const entered = Promise.withResolvers<void>()
+    registry.registerSourceAdapter('obsidian-note', { prepare: async item => item, commitBacklink: async () => {
+      entered.resolve()
+      await waiting.promise
+      return { referenceId: 'reference', commitDigest: digest, notePath: 'note.md', blockId: 'block', revision: '1', writtenAt: 5 }
+    } })
+    const operation = new BacklinkOutbox(store, registry).runPending('session')
+    await entered.promise
+    await store.deleteReferenceLink('session', { expectedRevision: store.read('session').revision,
+      setId: 'set', referenceId: 'reference', deletedAt: 5 })
+    waiting.resolve()
+    await operation
+    await store.completeCommittedDelete('session', { expectedRevision: store.read('session').revision,
+      setId: 'set', referenceId: 'reference', expectedGeneration: 0 })
+    expect(store.readSentSet('session', 'set')).toBeUndefined()
+    expect(store.listBacklinkJobs('session')).toHaveLength(0)
+    expect(store.listCommittedDeleteJobs('session')).toHaveLength(1)
+  })
   it('persists receipt and attempts without changing the already-sent model transaction', async () => {
     const store = await sentStore()
     const registry = new HostSourceRegistry(new Context())

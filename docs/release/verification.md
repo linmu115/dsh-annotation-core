@@ -2,7 +2,13 @@
 
 This file records author-side release evidence. Workshop verification and Registry admission remain independent maintainer decisions.
 
-## Supported baseline
+## M5 development build: 0.3.10-dev.0
+
+This development package requires the matched M5 Harness receipt, admission, and tool APIs. The older baseline below records earlier releases only. Its source worktree is `codex/m5-reference-settlement`; paired commits and package hashes are recorded by `dsh-codex-runtime/docs/release/m5-release.json`.
+
+Type checking and the Host/Client build passed. Focused regressions cover saved versus accepted input, draft retention, no duplicate submission, inherited snapshot reads, late backlink deletion, and durable cleanup. A real Codex task used the scoped reference tools through the actual Obsidian HTTP handler against a temporary note; the final keyless composition also passed native acceptance, backlink creation, deletion, and continuation. The actual Vault and RC1 installation remain untouched; user acceptance is pending.
+
+## Historical supported baseline
 
 - DeepSeek Harness client: `0.1.2-alpha.1`
 - Profile: `web`

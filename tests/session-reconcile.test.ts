@@ -42,7 +42,7 @@ function contextMessage(id: string, target: string) {
 
 describe('session durability settlement', () => {
   it('waits for the exact user and context events and then an explicit successful flush', async () => {
-    const { session, agent, tracker } = fixture()
+    const { ctx, session, agent, tracker } = fixture()
     const user = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'question' }] })
     const context = contextMessage('context', user.id)
     const settlement = tracker.begin(agent, { userMessageId: user.id, contextMessageId: context.id })
@@ -53,6 +53,10 @@ describe('session durability settlement', () => {
     await Promise.resolve()
     expect(settled).toBe(false)
     session.append('user/message', context, { surfaceOp: 'append' })
+    await ctx.sessions.flush(session)
+    expect(settled).toBe(false)
+    session.append('agent/input-accepted', { receiver: 'native', turn: 1, inputMessageIds: [user.id, context.id] })
+    await ctx.sessions.flush(session)
     await expect(settlement.promise).resolves.toEqual({ userObserved: true, contextObserved: true })
   })
 
@@ -69,7 +73,9 @@ describe('session durability settlement', () => {
     const plain = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'plain' }] })
     const unflushed = noFlush.tracker.begin(noFlush.agent, { userMessageId: plain.id })
     noFlush.session.append('user/message', plain, { surfaceOp: 'append' })
-    await expect(unflushed.promise).rejects.toThrow(/No session durability listener/)
+    unflushed.afterSend()
+    noFlush.idle.resolve()
+    await expect(unflushed.promise).rejects.toMatchObject({ code: 'unconfirmed' })
 
     const aborted = fixture()
     const abort = new AbortController()
@@ -84,16 +90,18 @@ describe('session durability settlement', () => {
   })
 
   it('joins identical retries without creating a second settlement barrier', async () => {
-    const { session, agent, tracker } = fixture()
+    const { ctx, session, agent, tracker } = fixture()
     const user = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'same' }] })
     const first = tracker.begin(agent, { userMessageId: user.id })
     const second = tracker.begin(agent, { userMessageId: user.id })
     expect(first.promise).toBe(second.promise)
     session.append('user/message', user, { surfaceOp: 'append' })
+    session.append('agent/input-accepted', { receiver: 'native', turn: 1, inputMessageIds: [user.id] })
+    await ctx.sessions.flush(session)
     await expect(first.promise).resolves.toMatchObject({ userObserved: true })
   })
 
-  it('replays one missing deterministic context on startup, flushes, and finalizes only once', async () => {
+  it('retains reconstructed context as unconfirmed until an exact saved receipt arrives', async () => {
     const { ctx, session, agent } = fixture()
     const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
     const selected = 'startup source'
@@ -125,6 +133,10 @@ describe('session durability settlement', () => {
     const reconciler = new StartupSubmissionReconciler(ctx, store, outbox, () => 4)
     await reconciler.reconcile(agent)
     expect(session.deriveMessages().map((message) => message.source.kind)).toEqual(['user', 'dsh-annotation'])
+    expect(store.readAdmission(session.id, 'submission')?.state).toBe('enqueued')
+    session.append('agent/input-accepted', { receiver: 'native', turn: 1, inputMessageIds: [user.id, MessageId(contextId)] })
+    await ctx.sessions.flush(session)
+    await reconciler.reconcile(agent)
     expect(store.readAdmission(session.id, 'submission')?.state).toBe('durable')
     expect(store.readSentSet(session.id, 'set')?.state).toBe('sent')
     await reconciler.reconcile(agent)

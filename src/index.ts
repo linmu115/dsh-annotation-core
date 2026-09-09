@@ -2,6 +2,7 @@ import s from '@deepseek-ai/schemastery'
 import type { Context } from './context-types.ts'
 
 import { HostSourceRegistry } from './host/source-registry.ts'
+import { availableReferenceSets, registerReferenceTools } from './host/reference-tools.ts'
 import { openAnnotationStore } from './host/store.ts'
 import { BacklinkOutbox } from './host/backlink-outbox.ts'
 import { PendingDiscardOutbox } from './host/pending-discard-outbox.ts'
@@ -41,6 +42,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   let discardOutbox!: PendingDiscardOutbox
   let deleteOutbox!: CommittedDeleteOutbox
   const sources = new HostSourceRegistry(ctx, {
+    listReferences: agent => availableReferenceSets(opened.store, agent),
     deleteReferenceLink: async (sessionId, setId, referenceId) => {
       const state = opened.store.readPending(sessionId)
       const result = await opened.store.deleteReferenceLink(sessionId, {
@@ -81,10 +83,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return
   }
   const settlements = new SessionSettlementTracker(ctx)
-  const outbox = new BacklinkOutbox(opened.store, sources)
+  const outbox = new BacklinkOutbox(opened.store, sources, Date.now, sessionId => deleteOutbox?.kick(sessionId))
   const submissions = new AnnotationSubmissionCoordinator(ctx, opened.store, sources, settlements, outbox)
   new AnnotationCoreRemoteService(ctx, opened.store, submissions, outbox, discardOutbox, deleteOutbox)
   registerAnnotationPreStep(ctx, opened.store)
   registerAnnotationSystemPrompt(ctx)
+  registerReferenceTools(ctx, opened.store, sources)
   new StartupSubmissionReconciler(ctx, opened.store, outbox).start()
 }

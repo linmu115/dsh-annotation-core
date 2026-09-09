@@ -19,6 +19,7 @@ export type SourcePreparationErrorCode =
   | 'protocol-mismatch'
 
 export interface HostSourceRegistryOptions {
+  readonly listReferences?: NonNullable<AnnotationCoreHost['listReferences']>
   readonly deleteReferenceLink?: (
     sessionId: string,
     setId: string,
@@ -39,6 +40,11 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
 
   constructor(ctx: Context, private readonly options: HostSourceRegistryOptions = {}) {
     super(ctx, 'annotationCoreHost')
+  }
+
+  listReferences(...args: Parameters<NonNullable<AnnotationCoreHost['listReferences']>>) {
+    if (this.options.listReferences === undefined) throw new Error('Host reference reads are not configured')
+    return this.options.listReferences(...args)
   }
 
   async deleteReferenceLink(

@@ -34,7 +34,7 @@ export async function annotationPreStep(
     knownIds.add(context.id)
     changed = true
   }
-  return changed ? { kind: 'enter', messages } : decision
+  return changed ? { ...decision, messages } : decision
 }
 
 export function registerAnnotationPreStep(ctx: Context, store: AnnotationStore): () => boolean {

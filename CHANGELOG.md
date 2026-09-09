@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.10-dev.0 - Unreleased
+
+- Settle submitted references only after one saved native or external acceptance receipt covers the user message and annotation context. Saved-only inputs remain unconfirmed; retries do not resend them.
+- Preserve pre-step request-series metadata, release the admission lock before waiting, and retain drafts when executor input admission fails.
+- Prevent late backlinks or stale cleanup receipts from restoring a deleted relation.
+- Add scoped `dsh_reference_list` and `dsh_reference_read` tools, including inherited snapshot reads without new backlinks.
+
+Requires the paired M5 Harness build; the unmodified RC1 registry release does not provide its receipt and admission APIs.
+
 ## 0.3.9 - 2026-09-07
 
 - Confirm pending relation deletions with their persisted session, set and reference identity. Existing failed discard jobs recover from their matching tombstones after restart without a storage migration.

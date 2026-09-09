@@ -1,4 +1,6 @@
 import type { ReferenceItem } from '../domain/model.ts'
+import type { ReferenceSet } from '../domain/model.ts'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { BacklinkReceiptV2, SourceType } from '../protocol/index.ts'
 
 export interface SentReferenceBinding {
@@ -31,6 +33,8 @@ export interface HostSourceAdapter {
 
 export interface AnnotationCoreHost {
   registerSourceAdapter(type: SourceType, adapter: HostSourceAdapter): () => void
+  /** Read submitted references and the supplied agent's current input batch, excluding drafts. */
+  listReferences?(agent: Agent): readonly ReferenceSet[]
   /**
    * Optional host-side mutation used by background integrations that must not
    * depend on an open browser client.

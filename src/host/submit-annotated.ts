@@ -1,5 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents, getModelSelection, readExecutionState } from '@deepseek-ai/dsh-agent'
+import { createAnnotationContextMessage } from './commit-journal.ts'
 
 import { beginReferenceCommit } from '../domain/state-machine.ts'
 import {
@@ -65,6 +67,8 @@ export interface SubmissionFailure {
 
 export type SubmissionResult = SubmissionSuccess | SubmissionFailure
 
+type AdmissionDispatch = SubmissionResult | { readonly result: Promise<SubmissionResult> }
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -100,18 +104,18 @@ export class AnnotationSubmissionCoordinator {
   ) {}
 
   submitAnnotated(agent: Agent, input: SubmitAnnotatedInput, signal?: AbortSignal): Promise<SubmissionResult> {
-    return this.exclusive(agent.id, () => this.submitAnnotatedExclusive(agent, input, signal))
+    return this.exclusive(agent.id, () => this.submitAnnotatedExclusive(agent, input, signal)).then(dispatch => 'result' in dispatch ? dispatch.result : dispatch)
   }
 
   submitPlain(agent: Agent, input: SubmitPlainInput, signal?: AbortSignal): Promise<SubmissionResult> {
-    return this.exclusive(agent.id, () => this.submitPlainExclusive(agent, input, signal))
+    return this.exclusive(agent.id, () => this.submitPlainExclusive(agent, input, signal)).then(dispatch => 'result' in dispatch ? dispatch.result : dispatch)
   }
 
   private async submitAnnotatedExclusive(
     agent: Agent,
     input: SubmitAnnotatedInput,
     signal?: AbortSignal,
-  ): Promise<SubmissionResult> {
+  ): Promise<AdmissionDispatch> {
     this.validateRequest(input)
     const known = this.store.readAdmission(agent.id, input.clientSubmissionId)
     if (known !== undefined) {
@@ -121,14 +125,22 @@ export class AnnotationSubmissionCoordinator {
         known.setId !== input.setId ||
         known.referenceRevision !== input.referenceRevision
       ) throw new AdmissionConflictError(input.clientSubmissionId)
-      return this.resumeKnown(agent, known, signal)
+      return { result: this.resumeKnown(agent, known, signal) }
     }
 
+    const capabilityFailure = await this.checkSubmissionCapability(agent, input.images, signal)
+    if (capabilityFailure !== undefined) return capabilityFailure
     const pending = this.store.readPending(agent.id)
     if (pending.pending?.setId !== input.setId || pending.pending.revision !== input.referenceRevision) {
       throw new AggregateRevisionConflictError(input.referenceRevision, pending.pending?.revision ?? -1)
     }
-    const contextWindow = agent.session.requestContext()?.contextWindow
+    const selection = getModelSelection(agent.ctx)
+    const registry = this.ctx.get('agents')
+    const models = selection === undefined || !registry?.listExecutors().some(entry => entry.provider === selection.provider)
+      ? [] : await registry.listExecutorModels(selection.provider)
+    const model = models.find(model => model.id === selection?.model)
+      ?? (selection === undefined ? undefined : await this.ctx.get('llm')?.resolveModelInfo(selection.provider, selection.model, signal))
+    const contextWindow = model?.context?.contextWindow
     const prepared = await prepareReferenceSet(pending.pending, this.sources, {
       budget: contextWindow === undefined ? {} : { contextWindow },
       useSavedSnapshotFor: new Set(input.useSavedSnapshotFor ?? []),
@@ -144,7 +156,7 @@ export class AnnotationSubmissionCoordinator {
       referenceRevision: input.referenceRevision,
       createdAt: input.createdAt,
     })
-    if (!begun.created) return this.resumeKnown(agent, begun.record, signal)
+    if (!begun.created) return { result: this.resumeKnown(agent, begun.record, signal) }
     const preparedSet = beginReferenceCommit(prepared.set, prepared.set.revision)
 
     let message
@@ -166,6 +178,15 @@ export class AnnotationSubmissionCoordinator {
       setId: input.setId,
       digest: serialized.digest,
     })
+    try {
+      const context = createAnnotationContextMessage(agent.id, { userMessageId: message.id,
+        clientSubmissionId: input.clientSubmissionId, requestDigest: input.requestDigest,
+        setId: input.setId, contextMessageId, contextDigest: serialized.digest, preparedSet, createdAt: input.createdAt })
+      await agentEvents(this.ctx, agent).serial('agent/input-admission', { messages: [message, context], signal: signal ?? new AbortController().signal })
+    } catch (error) {
+      await this.failTerminal(agent.id, input.clientSubmissionId, error)
+      return { kind: 'error', code: 'delivery', message: errorText(error) }
+    }
     await this.store.recordEnqueuedSubmission(agent.id, {
       expectedRevision: begun.revision,
       clientSubmissionId: input.clientSubmissionId,
@@ -177,29 +198,31 @@ export class AnnotationSubmissionCoordinator {
       preparedSet,
       createdAt: input.createdAt,
     })
-    return this.deliverAndSettle(agent, input.clientSubmissionId, message, signal)
+    return { result: this.deliverAndSettle(agent, input.clientSubmissionId, message, signal) }
   }
 
   private async submitPlainExclusive(
     agent: Agent,
     input: SubmitPlainInput,
     signal?: AbortSignal,
-  ): Promise<SubmissionResult> {
+  ): Promise<AdmissionDispatch> {
     this.validateRequest(input)
     const known = this.store.readAdmission(agent.id, input.clientSubmissionId)
     if (known !== undefined) {
       if (known.requestDigest !== input.requestDigest || known.kind !== 'plain') {
         throw new AdmissionConflictError(input.clientSubmissionId)
       }
-      return this.resumeKnown(agent, known, signal)
+      return { result: this.resumeKnown(agent, known, signal) }
     }
+    const capabilityFailure = await this.checkSubmissionCapability(agent, input.images, signal)
+    if (capabilityFailure !== undefined) return capabilityFailure
     const begun = await this.store.beginPlainAdmission(agent.id, {
       expectedRevision: input.expectedRevision,
       clientSubmissionId: input.clientSubmissionId,
       requestDigest: input.requestDigest,
       createdAt: input.createdAt,
     })
-    if (!begun.created) return this.resumeKnown(agent, begun.record, signal)
+    if (!begun.created) return { result: this.resumeKnown(agent, begun.record, signal) }
     let message
     try {
       message = await createDirectUserMessage({
@@ -211,6 +234,12 @@ export class AnnotationSubmissionCoordinator {
       await this.failTerminal(agent.id, input.clientSubmissionId, error)
       return { kind: 'error', code: 'image-admission', message: errorText(error) }
     }
+    try {
+      await agentEvents(this.ctx, agent).serial('agent/input-admission', { messages: [message], signal: signal ?? new AbortController().signal })
+    } catch (error) {
+      await this.failTerminal(agent.id, input.clientSubmissionId, error)
+      return { kind: 'error', code: 'delivery', message: errorText(error) }
+    }
     await this.store.recordEnqueuedSubmission(agent.id, {
       expectedRevision: begun.revision,
       clientSubmissionId: input.clientSubmissionId,
@@ -218,7 +247,17 @@ export class AnnotationSubmissionCoordinator {
       userMessageId: message.id,
       createdAt: input.createdAt,
     })
-    return this.deliverAndSettle(agent, input.clientSubmissionId, message, signal)
+    return { result: this.deliverAndSettle(agent, input.clientSubmissionId, message, signal) }
+  }
+
+  private async checkSubmissionCapability(agent: Agent, images: readonly SubmitImageAttachment[] | undefined, signal?: AbortSignal): Promise<SubmissionFailure | undefined> {
+    signal?.throwIfAborted()
+    if (readExecutionState(agent.session).active?.status === 'uncertain') return { kind: 'error', code: 'unresolved', message: 'Previous execution must be reconciled before another submission.' }
+    const selection = getModelSelection(agent.ctx)
+    const registry = this.ctx.get('agents')
+    if (selection === undefined || registry === undefined || !registry.listExecutors().some(entry => entry.provider === selection.provider)) return
+    const model = (await registry.listExecutorModels(selection.provider)).find(entry => entry.id === selection.model)
+    if (images?.length && model?.inputModalities !== undefined && !model.inputModalities.includes('image')) return { kind: 'error', code: 'image-admission', message: 'The selected executor does not accept images; the draft has been retained.' }
   }
 
   private validateRequest(input: SubmitAnnotatedInput | SubmitPlainInput): void {

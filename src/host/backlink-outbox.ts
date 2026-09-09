@@ -1,6 +1,7 @@
 import type { AnnotationStore, BacklinkJob } from './store.ts'
 import { AggregateRevisionConflictError } from './store.ts'
 import type { HostSourceRegistry } from './source-registry.ts'
+import type { ReferenceItem } from '../domain/model.ts'
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -13,6 +14,7 @@ export class BacklinkOutbox {
     readonly store: AnnotationStore,
     readonly sources: HostSourceRegistry,
     readonly now: () => number = Date.now,
+    readonly onCleanup?: (sessionId: string) => void,
   ) {}
 
   kick(sessionId: string): void {
@@ -57,6 +59,7 @@ export class BacklinkOutbox {
   }
 
   private async commit(sessionId: string, job: BacklinkJob): Promise<void> {
+    if (this.store.readDeletedReference(sessionId, job.referenceId)?.setId === job.setId) return
     const set = this.store.readSentSet(sessionId, job.setId)
     const item = set?.items.find((candidate) => candidate.referenceId === job.referenceId)
     if (
@@ -78,8 +81,10 @@ export class BacklinkOutbox {
         item,
       })
       if (receipt === undefined) throw new Error(`No backlink writer is registered for ${item.sourceType}`)
+      if (await this.cleanupDeleted(sessionId, job, item)) return
       await this.record(sessionId, job, { receipt })
     } catch (error) {
+      if (await this.cleanupDeleted(sessionId, job, item)) return
       await this.record(sessionId, job, { error: errorText(error) })
     }
   }
@@ -91,6 +96,7 @@ export class BacklinkOutbox {
   ): Promise<void> {
     for (;;) {
       const aggregate = this.store.read(sessionId)
+      if (aggregate.deletedReferences[job.referenceId]?.setId === job.setId) return
       try {
         await this.store.recordBacklinkResult(sessionId, {
           expectedRevision: aggregate.revision,
@@ -100,6 +106,21 @@ export class BacklinkOutbox {
           updatedAt: this.now(),
         })
         return
+      } catch (error) {
+        if (!(error instanceof AggregateRevisionConflictError)) throw error
+      }
+    }
+  }
+
+  private async cleanupDeleted(sessionId: string, job: BacklinkJob, item: ReferenceItem): Promise<boolean> {
+    for (;;) {
+      const aggregate = this.store.read(sessionId)
+      try {
+        const queued = await this.store.reconcileDeletedBacklink(sessionId, {
+          expectedRevision: aggregate.revision, setId: job.setId, item, updatedAt: this.now(),
+        })
+        if (queued) this.onCleanup?.(sessionId)
+        return queued
       } catch (error) {
         if (!(error instanceof AggregateRevisionConflictError)) throw error
       }

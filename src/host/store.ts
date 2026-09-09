@@ -213,6 +213,7 @@ const PendingDiscardJobSchema = z.object({
 }).strict()
 
 export interface CommittedDeleteJob {
+  readonly generation?: number
   readonly setId: string
   readonly referenceId: string
   readonly state: 'pending'
@@ -225,6 +226,7 @@ export interface CommittedDeleteJob {
 }
 
 const CommittedDeleteJobSchema = z.object({
+  generation: NonNegativeIntegerSchema.optional(),
   setId: NonEmptyStringSchema,
   referenceId: NonEmptyStringSchema,
   state: z.literal('pending'),
@@ -878,6 +880,7 @@ export class AnnotationStore {
 
   async completeCommittedDelete(sessionId: string, input: {
     expectedRevision: number
+    expectedGeneration?: number
     setId: string
     referenceId: string
   }): Promise<{ revision: number; removed: boolean }> {
@@ -887,6 +890,9 @@ export class AnnotationStore {
         return { changed: false, aggregate, value: { revision: aggregate.revision, removed: false } }
       }
       assertExpected(aggregate, input.expectedRevision)
+      if (input.expectedGeneration !== undefined && (aggregate.committedDeleteJobs[key]?.generation ?? 0) !== input.expectedGeneration) {
+        return { changed: false, aggregate, value: { revision: aggregate.revision, removed: false } }
+      }
       const committedDeleteJobs = { ...aggregate.committedDeleteJobs }
       delete committedDeleteJobs[key]
       const next: SessionAggregate = {
@@ -895,6 +901,25 @@ export class AnnotationStore {
         committedDeleteJobs,
       }
       return { changed: true, aggregate: next, value: { revision: next.revision, removed: true } }
+    })
+  }
+
+  /** Persist cleanup for a backlink acknowledged after its relation was deleted. */
+  async reconcileDeletedBacklink(sessionId: string, input: {
+    expectedRevision: number; setId: string; item: ReferenceItem; updatedAt: number
+  }): Promise<boolean> {
+    return this.mutate(sessionId, (aggregate) => {
+      assertExpected(aggregate, input.expectedRevision)
+      const deleted = aggregate.deletedReferences[input.item.referenceId]
+      if (deleted?.setId !== input.setId) return { changed: false, aggregate, value: false }
+      const revision = aggregate.revision + 1
+      const key = `${input.setId}:${input.item.referenceId}`
+      const job: CommittedDeleteJob = { setId: input.setId, referenceId: input.item.referenceId,
+        state: 'pending', item: clone(input.item), deletedAt: deleted.deletedAt, generation: revision,
+        attempts: 0, createdAt: input.updatedAt, updatedAt: input.updatedAt }
+      const next: SessionAggregate = { ...aggregate, revision,
+        committedDeleteJobs: { ...aggregate.committedDeleteJobs, [key]: job } }
+      return { changed: true, aggregate: next, value: true }
     })
   }
 
@@ -1321,7 +1346,8 @@ export class AnnotationStore {
           userAnchorId: input.userMessageId,
           userTextHash: journal.userTextHash,
         })
-        pending = undefined
+        sent = { ...sent, items: sent.items.filter(item => aggregate.deletedReferences[item.referenceId]?.setId !== sent?.setId) }
+        if (pending?.setId === prepared.setId) pending = undefined
         for (const item of sent.items) {
           if (item.sourceType !== 'obsidian-note') continue
           const key = `${sent.setId}:${item.referenceId}`

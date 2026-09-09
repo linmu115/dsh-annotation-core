@@ -86,6 +86,7 @@ export class CommittedDeleteOutbox {
       try {
         await this.store.completeCommittedDelete(sessionId, {
           expectedRevision: aggregate.revision,
+          expectedGeneration: job.generation ?? 0,
           setId: job.setId,
           referenceId: job.referenceId,
         })

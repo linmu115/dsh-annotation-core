@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { BacklinkOutbox } from '../src/host/backlink-outbox.ts'
 import { annotationPreStep } from '../src/host/pre-step.ts'
+import { availableReferenceSets } from '../src/host/reference-tools.ts'
 import { SessionSettlementTracker } from '../src/host/session-reconcile.ts'
 import { HostSourceRegistry } from '../src/host/source-registry.ts'
 import {
@@ -60,7 +61,7 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
-type DeliveryMode = 'accept' | 'reject' | 'drop'
+type DeliveryMode = 'accept' | 'reject' | 'drop' | 'saved-only'
 
 function fixture(options: { mode?: DeliveryMode; flush?: 'success' | 'fail' | 'defer' } = {}) {
   const ctx = new Context()
@@ -106,7 +107,7 @@ function fixture(options: { mode?: DeliveryMode; flush?: 'success' | 'fail' | 'd
         if ((options.mode ?? 'accept') === 'drop') return
         const next = async (): Promise<PreStepDecision> => (options.mode === 'reject'
           ? { kind: 'reject' }
-          : { kind: 'enter', messages: [message] })
+          : { kind: 'enter', messages: [message], startsRequestSeries: true })
         const decision = await annotationPreStep(store, {
           agent: agent as unknown as Agent,
           messages: [message],
@@ -115,7 +116,12 @@ function fixture(options: { mode?: DeliveryMode; flush?: 'success' | 'fail' | 'd
           signal: new AbortController().signal,
         }, next)
         if (decision.kind === 'enter') {
+          expect(decision.startsRequestSeries).toBe(true)
           for (const entered of decision.messages) session.append('user/message', entered, { surfaceOp: 'append' })
+          if (options.mode !== 'saved-only') session.append('agent/input-accepted', {
+            receiver: 'native', turn: 1, inputMessageIds: decision.messages.map(entered => entered.id),
+          })
+          await ctx.sessions.flush(session)
         }
       })()
     },
@@ -161,6 +167,44 @@ function annotatedRequest(store: AnnotationStore, sessionId: string, overrides: 
 }
 
 describe('Host annotated submission transaction', () => {
+  it('retains the reference draft when executor input admission rejects the complete proposed input', async () => {
+    const f = fixture()
+    await addReference(f.store, f.session.id)
+    f.ctx.on('agent/input-admission', async ({ messages }) => {
+      expect(messages).toHaveLength(2)
+      throw new Error('Codex context exceeds its byte limit')
+    })
+    expect(await f.coordinator.submitAnnotated(f.agent, annotatedRequest(f.store, f.session.id))).toMatchObject({ kind: 'error', code: 'delivery' })
+    expect(f.sends).toHaveLength(0)
+    expect(f.store.readPending(f.session.id).pending?.items).toHaveLength(1)
+  })
+  it('exposes submitted references only to their conversation and hides unsent drafts', async () => {
+    const f = fixture()
+    await addReference(f.store, f.session.id)
+    expect(availableReferenceSets(f.store, f.agent)).toEqual([])
+    await f.coordinator.submitAnnotated(f.agent, annotatedRequest(f.store, f.session.id))
+    expect(availableReferenceSets(f.store, f.agent).flatMap(set => set.items)).toHaveLength(1)
+    const childSession = f.ctx.sessions.fork(f.session, undefined, SessionId('reference-child'))
+    const child = { ...f.agent, id: childSession.id, session: childSession } as Agent
+    expect(availableReferenceSets(f.store, child).flatMap(set => set.items)).toHaveLength(1)
+    expect(f.store.listBacklinkJobs(child.id)).toEqual([])
+    const other = fixture()
+    expect(availableReferenceSets(f.store, other.agent)).toEqual([])
+    const set = availableReferenceSets(f.store, f.agent)[0]!
+    await f.store.deleteReferenceLink(f.session.id, { expectedRevision: f.store.readPending(f.session.id).revision,
+      setId: set.setId, referenceId: set.items[0]!.referenceId, deletedAt: 200 })
+    expect(availableReferenceSets(f.store, f.agent).flatMap(value => value.items)).toEqual([])
+  })
+  it('retains saved but unaccepted references and never resends the same submission', async () => {
+    const f = fixture({ mode: 'saved-only' })
+    await addReference(f.store, f.session.id)
+    const request = annotatedRequest(f.store, f.session.id)
+    expect(await f.coordinator.submitAnnotated(f.agent, request)).toMatchObject({ kind: 'error', code: 'unresolved' })
+    expect(f.store.readPending(f.session.id).pending?.state).toBe('committing')
+    expect(f.store.readSentSet(f.session.id, 'set')).toBeUndefined()
+    expect(await f.coordinator.submitAnnotated(f.agent, request)).toMatchObject({ kind: 'error', code: 'unresolved' })
+    expect(f.sends).toHaveLength(1)
+  })
   it('journals a normal user message before fixed next-turn wake delivery and waits for disk flush', async () => {
     const f = fixture({ flush: 'defer' })
     await addReference(f.store, f.session.id)

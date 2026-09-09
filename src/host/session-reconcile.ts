@@ -1,5 +1,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { readInputAcceptance } from '@deepseek-ai/dsh-agent'
+import type { InputAcceptance } from '@deepseek-ai/dsh-agent/types'
+import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionSeq } from '@deepseek-ai/dsh-session'
 
 import type { BacklinkOutbox } from './backlink-outbox.ts'
@@ -21,7 +24,7 @@ export interface SubmissionSettlement {
   afterSend(): void
 }
 
-export type SettlementErrorCode = 'idle' | 'flush' | 'disposed' | 'aborted'
+export type SettlementErrorCode = 'idle' | 'flush' | 'disposed' | 'aborted' | 'unconfirmed'
 
 export class SettlementError extends Error {
   constructor(
@@ -46,7 +49,6 @@ interface Waiter {
   readonly reject: (error: unknown) => void
   userObserved: boolean
   contextObserved: boolean
-  flushing: boolean
   settled: boolean
   idleArmed: boolean
   abort?: () => void
@@ -59,6 +61,13 @@ function errorMessage(error: unknown): string {
 
 function targetMessageId(event: SessionEvent): string | undefined {
   return event.type === 'user/message' ? event.data.id : undefined
+}
+
+/** Read exact saved receipt identities without starting or retrying execution. */
+export function submissionAcceptance(ctx: Context, agent: Agent, userMessageId: string, contextMessageId?: string): InputAcceptance {
+  return readInputAcceptance({ sessionId: agent.id, events: agent.session.snapshotEvents(),
+    durableThrough: ctx.sessions.durableThrough(agent.session), inheritedEventCount: agent.session.inheritedEventCount,
+    requiredMessageIds: [userMessageId, ...(contextMessageId === undefined ? [] : [contextMessageId])] as MessageId[] })
 }
 
 export function scanSubmissionEvents(
@@ -87,6 +96,11 @@ export class SessionSettlementTracker {
 
   constructor(readonly ctx: Context) {
     ctx.on('session/event', (session, event) => { this.observe(session, event) })
+    ctx.on('session/durable', (session) => {
+      for (const waiter of this.waiters.values()) {
+        if (waiter.agent.session === session) this.checkReceipt(waiter)
+      }
+    })
     ctx.on('agent/disposed', ({ agent }) => { this.disposeAgent(agent) })
     ctx.effect(() => () => { this.close() }, 'annotation-core.sessionSettlement')
   }
@@ -118,7 +132,6 @@ export class SessionSettlementTracker {
       reject,
       userObserved: found.userObserved,
       contextObserved: found.contextObserved,
-      flushing: false,
       settled: false,
       idleArmed: false,
     }
@@ -129,29 +142,25 @@ export class SessionSettlementTracker {
       input.signal.addEventListener('abort', abort, { once: true })
       if (input.signal.aborted) abort()
     }
-    this.maybeFlush(waiter)
+    this.checkReceipt(waiter)
     return { promise, afterSend: () => { this.armIdle(waiter) } }
   }
 
   private observe(session: Session, event: SessionEvent): void {
     const messageId = targetMessageId(event)
-    if (messageId === undefined) return
+    if (messageId === undefined && event.type !== 'agent/input-accepted' && event.type !== 'agent/execution-record') return
     for (const waiter of this.waiters.values()) {
       if (waiter.agent.session !== session || waiter.settled) continue
       if (messageId === waiter.userMessageId) waiter.userObserved = true
       if (messageId === waiter.contextMessageId) waiter.contextObserved = true
-      this.maybeFlush(waiter)
+      this.checkReceipt(waiter)
     }
   }
 
-  private maybeFlush(waiter: Waiter): void {
-    if (waiter.settled || waiter.flushing || !waiter.userObserved || !waiter.contextObserved) return
-    waiter.flushing = true
-    void this.ctx.sessions.flush(waiter.agent.session).then((participated) => {
-      if (!participated) throw new SettlementError('flush', 'No session durability listener participated in the flush barrier', waiter.userObserved, waiter.contextObserved)
-      this.succeed(waiter)
-    }, (error) => { this.fail(waiter, new SettlementError('flush', `Session flush failed: ${errorMessage(error)}`, waiter.userObserved, waiter.contextObserved, { cause: error })) })
-      .catch((error) => { this.fail(waiter, error) })
+  private checkReceipt(waiter: Waiter): void {
+    if (waiter.settled || !waiter.userObserved || !waiter.contextObserved) return
+    const acceptance = submissionAcceptance(this.ctx, waiter.agent, waiter.userMessageId, waiter.contextMessageId)
+    if (acceptance.state === 'accepted') this.succeed(waiter)
   }
 
   private armIdle(waiter: Waiter): void {
@@ -159,15 +168,23 @@ export class SessionSettlementTracker {
     waiter.idleArmed = true
     void waiter.agent.whenIdle().then(() => {
       queueMicrotask(() => {
-        if (!waiter.settled && !waiter.flushing) {
-          this.fail(waiter, new SettlementError('idle',
+        if (!waiter.settled) {
+          this.checkReceipt(waiter)
+          if (waiter.settled) return
+          const acceptance = submissionAcceptance(this.ctx, waiter.agent, waiter.userMessageId, waiter.contextMessageId)
+          const code = acceptance.state === 'not-accepted' || (!waiter.userObserved && acceptance.state === 'waiting') ? 'idle' : 'unconfirmed'
+          this.fail(waiter, new SettlementError(code,
             `Agent became idle before the exact submission events were committed (user=${waiter.userObserved}, context=${waiter.contextObserved})`,
             waiter.userObserved,
             waiter.contextObserved,
           ))
         }
       })
-    }, (error) => { this.fail(waiter, error) })
+    }, (error) => {
+      this.checkReceipt(waiter)
+      if (!waiter.settled) this.fail(waiter, new SettlementError(waiter.userObserved ? 'unconfirmed' : 'idle',
+        errorMessage(error), waiter.userObserved, waiter.contextObserved, { cause: error }))
+    })
   }
 
   private succeed(waiter: Waiter): void {
@@ -246,11 +263,11 @@ export class StartupSubmissionReconciler {
         return
       }
       const hasLaterAssistant = agent.session.snapshotEvents().some(
-        (event) => event.seq > found.userSeq! && event.type === 'assistant/message',
+        (event) => event.seq > found.userSeq! && (event.type === 'assistant/message'
+          || event.type === 'agent/execution-state' || event.type === 'agent/execution-record' || event.type === 'agent/input-accepted'),
       )
       if (hasLaterAssistant) {
-        await this.failTerminal(agent.id, admission, new Error('A model answer already exists without its annotation context'))
-        return
+        throw new SettlementError('unconfirmed', 'Execution already entered; missing annotation context cannot be appended retroactively', true, false)
       }
       const context = createAnnotationContextMessage(agent.id, journal)
       agent.session.append('user/message', context, {
@@ -265,6 +282,12 @@ export class StartupSubmissionReconciler {
     }
     const participated = await this.ctx.sessions.flush(agent.session)
     if (!participated) throw new SettlementError('flush', 'No session durability listener participated during startup reconciliation', true, rescanned.contextObserved)
+    const acceptance = submissionAcceptance(this.ctx, agent, admission.userMessageId, admission.contextMessageId)
+    if (acceptance.state !== 'accepted') {
+      if (acceptance.state === 'not-accepted') await this.failTerminal(agent.id, admission, new Error('Executor confirmed input rejection'))
+      else throw new SettlementError('unconfirmed', 'Input acceptance remains unconfirmed', true, rescanned.contextObserved)
+      return
+    }
     await this.finalize(agent.id, admission, rescanned.contextObserved)
   }
 
