@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { previewAgentInput, getModelSelection, readExecutionState } from '@deepseek-ai/dsh-agent'
+import { acceptanceRegistry } from './input-acceptance.ts'
 import { createAnnotationContextMessage } from './commit-journal.ts'
 
 import { beginReferenceCommit } from '../domain/state-machine.ts'
@@ -134,12 +134,8 @@ export class AnnotationSubmissionCoordinator {
     if (pending.pending?.setId !== input.setId || pending.pending.revision !== input.referenceRevision) {
       throw new AggregateRevisionConflictError(input.referenceRevision, pending.pending?.revision ?? -1)
     }
-    const selection = getModelSelection(agent.ctx)
-    const registry = this.ctx.get('agents')
-    const models = selection === undefined || !registry?.listExecutors().some(entry => entry.provider === selection.provider)
-      ? [] : await registry.listExecutorModels(selection.provider)
-    const model = models.find(model => model.id === selection?.model)
-      ?? (selection === undefined ? undefined : await this.ctx.get('llm')?.resolveModelInfo(selection.provider, selection.model, signal))
+    const selection = selectedModel(agent)
+    const model = selection === undefined ? undefined : await this.ctx.get('llm')?.resolveModelInfo(selection.provider, selection.model, signal)
     const contextWindow = model?.context?.contextWindow
     const prepared = await prepareReferenceSet(pending.pending, this.sources, {
       budget: contextWindow === undefined ? {} : { contextWindow },
@@ -182,7 +178,7 @@ export class AnnotationSubmissionCoordinator {
       const context = createAnnotationContextMessage(agent.id, { userMessageId: message.id,
         clientSubmissionId: input.clientSubmissionId, requestDigest: input.requestDigest,
         setId: input.setId, contextMessageId, contextDigest: serialized.digest, preparedSet, createdAt: input.createdAt })
-      await previewAgentInput(this.ctx, agent, [message, context], signal ?? new AbortController().signal)
+      await acceptanceRegistry(this.ctx)?.preview(agent, [message, context], signal ?? new AbortController().signal)
     } catch (error) {
       await this.failTerminal(agent.id, input.clientSubmissionId, error)
       return { kind: 'error', code: 'delivery', message: errorText(error) }
@@ -235,7 +231,7 @@ export class AnnotationSubmissionCoordinator {
       return { kind: 'error', code: 'image-admission', message: errorText(error) }
     }
     try {
-      await previewAgentInput(this.ctx, agent, [message], signal ?? new AbortController().signal)
+      await acceptanceRegistry(this.ctx)?.preview(agent, [message], signal ?? new AbortController().signal)
     } catch (error) {
       await this.failTerminal(agent.id, input.clientSubmissionId, error)
       return { kind: 'error', code: 'delivery', message: errorText(error) }
@@ -252,12 +248,10 @@ export class AnnotationSubmissionCoordinator {
 
   private async checkSubmissionCapability(agent: Agent, images: readonly SubmitImageAttachment[] | undefined, signal?: AbortSignal): Promise<SubmissionFailure | undefined> {
     signal?.throwIfAborted()
-    if (readExecutionState(agent.session).active?.status === 'uncertain') return { kind: 'error', code: 'unresolved', message: 'Previous execution must be reconciled before another submission.' }
-    const selection = getModelSelection(agent.ctx)
-    const registry = this.ctx.get('agents')
-    if (selection === undefined || registry === undefined || !registry.listExecutors().some(entry => entry.provider === selection.provider)) return
-    const model = (await registry.listExecutorModels(selection.provider)).find(entry => entry.id === selection.model)
-    if (images?.length && model?.inputModalities !== undefined && !model.inputModalities.includes('image')) return { kind: 'error', code: 'image-admission', message: 'The selected executor does not accept images; the draft has been retained.' }
+    const selection = selectedModel(agent)
+    if (selection === undefined) return
+    const model = await this.ctx.get('llm')?.resolveModelInfo(selection.provider, selection.model, signal)
+    if (images?.length && model?.inputModalities !== undefined && !model.inputModalities.includes('image')) return { kind: 'error', code: 'image-admission', message: 'The selected model does not accept images; the draft has been retained.' }
   }
 
   private validateRequest(input: SubmitAnnotatedInput | SubmitPlainInput): void {
@@ -429,4 +423,12 @@ export class AnnotationSubmissionCoordinator {
       if (this.tails.get(sessionId) === tail) this.tails.delete(sessionId)
     }
   }
+}
+
+/** model/selection is a public API-controller event, optional in embedded profiles. */
+function selectedModel(agent: Agent): { provider: string; model: string } | undefined {
+  const events: readonly { type: string; data: unknown }[] = agent.session.snapshotEvents()
+  const value = events.findLast(event => event.type === 'model/selection')?.data
+  if (!value || typeof value !== 'object' || !('provider' in value) || !('model' in value) || typeof value.provider !== 'string' || typeof value.model !== 'string') return
+  return { provider: value.provider, model: value.model }
 }

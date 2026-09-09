@@ -4,3 +4,4 @@ coverage/
 .vitest/
 .tmp/
 *.tgz
+.artifacts/

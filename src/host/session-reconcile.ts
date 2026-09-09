@@ -1,8 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { readInputAcceptance } from '@deepseek-ai/dsh-agent'
-import type { InputAcceptance } from '@deepseek-ai/dsh-agent/types'
-import type { MessageId } from '@deepseek-ai/dsh-llm'
+import { acceptanceRegistry, InputAcceptanceRegistry } from './input-acceptance.ts'
+import type { InputAcceptance } from '../public/host-api.ts'
 import type { Session, SessionEvent, SessionSeq } from '@deepseek-ai/dsh-session'
 
 import type { BacklinkOutbox } from './backlink-outbox.ts'
@@ -50,6 +49,7 @@ interface Waiter {
   userObserved: boolean
   contextObserved: boolean
   settled: boolean
+  flushing?: boolean
   idleArmed: boolean
   abort?: () => void
   signal?: AbortSignal
@@ -65,9 +65,8 @@ function targetMessageId(event: SessionEvent): string | undefined {
 
 /** Read exact saved receipt identities without starting or retrying execution. */
 export function submissionAcceptance(ctx: Context, agent: Agent, userMessageId: string, contextMessageId?: string): InputAcceptance {
-  return readInputAcceptance({ sessionId: agent.id, events: agent.session.snapshotEvents(),
-    durableThrough: ctx.sessions.durableThrough(agent.session), inheritedEventCount: agent.session.inheritedEventCount,
-    requiredMessageIds: [userMessageId, ...(contextMessageId === undefined ? [] : [contextMessageId])] as MessageId[] })
+  return (acceptanceRegistry(ctx) ?? new InputAcceptanceRegistry()).read(ctx, agent,
+    [userMessageId, ...(contextMessageId === undefined ? [] : [contextMessageId])])
 }
 
 export function scanSubmissionEvents(
@@ -96,10 +95,8 @@ export class SessionSettlementTracker {
 
   constructor(readonly ctx: Context) {
     ctx.on('session/event', (session, event) => { this.observe(session, event) })
-    ctx.on('session/durable', (session) => {
-      for (const waiter of this.waiters.values()) {
-        if (waiter.agent.session === session) this.checkReceipt(waiter)
-      }
+    ctx.inject(['annotationCoreHost'], scope => {
+      scope.effect(() => acceptanceRegistry(scope)!.subscribe(() => { for (const waiter of this.waiters.values()) this.checkReceipt(waiter) }))
     })
     ctx.on('agent/disposed', ({ agent }) => { this.disposeAgent(agent) })
     ctx.effect(() => () => { this.close() }, 'annotation-core.sessionSettlement')
@@ -148,7 +145,7 @@ export class SessionSettlementTracker {
 
   private observe(session: Session, event: SessionEvent): void {
     const messageId = targetMessageId(event)
-    if (messageId === undefined && event.type !== 'agent/input-accepted' && event.type !== 'agent/execution-record') return
+    if (messageId === undefined) return
     for (const waiter of this.waiters.values()) {
       if (waiter.agent.session !== session || waiter.settled) continue
       if (messageId === waiter.userMessageId) waiter.userObserved = true
@@ -160,7 +157,13 @@ export class SessionSettlementTracker {
   private checkReceipt(waiter: Waiter): void {
     if (waiter.settled || !waiter.userObserved || !waiter.contextObserved) return
     const acceptance = submissionAcceptance(this.ctx, waiter.agent, waiter.userMessageId, waiter.contextMessageId)
-    if (acceptance.state === 'accepted') this.succeed(waiter)
+    if (acceptance.state !== 'accepted' || waiter.flushing) return
+    waiter.flushing = true
+    void this.ctx.sessions.flush(waiter.agent.session).then(participated => {
+      if (!participated) throw new Error('No session durability listener participated')
+      if (submissionAcceptance(this.ctx, waiter.agent, waiter.userMessageId, waiter.contextMessageId).state === 'accepted') this.succeed(waiter)
+    }).catch(error => this.fail(waiter, new SettlementError('flush', errorMessage(error), waiter.userObserved, waiter.contextObserved)))
+      .finally(() => { waiter.flushing = false })
   }
 
   private armIdle(waiter: Waiter): void {
@@ -170,7 +173,7 @@ export class SessionSettlementTracker {
       queueMicrotask(() => {
         if (!waiter.settled) {
           this.checkReceipt(waiter)
-          if (waiter.settled) return
+          if (waiter.settled || waiter.flushing) return
           const acceptance = submissionAcceptance(this.ctx, waiter.agent, waiter.userMessageId, waiter.contextMessageId)
           const code = acceptance.state === 'not-accepted' || (!waiter.userObserved && acceptance.state === 'waiting') ? 'idle' : 'unconfirmed'
           this.fail(waiter, new SettlementError(code,
@@ -263,8 +266,7 @@ export class StartupSubmissionReconciler {
         return
       }
       const hasLaterAssistant = agent.session.snapshotEvents().some(
-        (event) => event.seq > found.userSeq! && (event.type === 'assistant/message'
-          || event.type === 'agent/execution-state' || event.type === 'agent/execution-record' || event.type === 'agent/input-accepted'),
+        (event) => event.seq > found.userSeq! && (event.type === 'assistant/message' || event.type === 'request/header'),
       )
       if (hasLaterAssistant) {
         throw new SettlementError('unconfirmed', 'Execution already entered; missing annotation context cannot be appended retroactively', true, false)

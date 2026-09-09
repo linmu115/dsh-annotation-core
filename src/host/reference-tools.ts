@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { readExecutionState, type Agent, type DeliveryRecord } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { acceptanceRegistry } from './input-acceptance.ts'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type {} from '@deepseek-ai/dsh-executor-tool-bridge'
 import type { ReferenceSet } from '../domain/model.ts'
 import { ReferenceSetSchema, type AnnotationStore } from './store.ts'
 import { canonicalSha256, parseSerializedAnnotationContext } from '../protocol/index.ts'
@@ -29,23 +29,11 @@ export function availableReferenceSets(store: AnnotationStore, agent: Agent): re
       profileId: store.read(sessionId).profileId, sessionId: agent.session.header.parentSession ?? sessionId,
       state: 'sent', revision: 0, items, createdAt: event.time, userMessageId: source.targetUserMessageId }) as ReferenceSet)
   }
-  const active = readExecutionState(agent.session).active
-  if (active != null) {
-    const deliveries = new Map<string, DeliveryRecord>()
-    for (const event of agent.session.snapshotEvents().slice(agent.session.inheritedEventCount)) {
-      if (event.type !== 'agent/execution-record' || event.data.record.kind !== 'delivery') continue
-      const delivery = event.data.record.delivery
-      if (delivery.executionId === active.executionId && delivery.generation === active.generation) deliveries.set(delivery.id, delivery)
-    }
-    for (const delivery of deliveries.values()) {
-      if (delivery.phase === 'rejected') continue
-      for (const id of delivery.inputMessageIds) {
-        const journal = store.readSubmissionJournal(sessionId, id)
-        if (journal?.preparedSet === undefined || journal.contextMessageId === undefined ||
-          !delivery.inputMessageIds.some(messageId => messageId === journal.contextMessageId)) continue
-        if (!sets.has(journal.preparedSet.setId)) sets.set(journal.preparedSet.setId, journal.preparedSet)
-      }
-    }
+  const inputIds = acceptanceRegistry(agent.ctx)?.activeInputIds(agent) ?? []
+  for (const id of inputIds) {
+    const journal = store.readSubmissionJournal(sessionId, id)
+    if (journal?.preparedSet === undefined || journal.contextMessageId === undefined || !inputIds.includes(journal.contextMessageId)) continue
+    if (!sets.has(journal.preparedSet.setId)) sets.set(journal.preparedSet.setId, journal.preparedSet)
   }
   return [...sets.values()].map(set => ({ ...set, items: set.items.filter(item =>
     store.readDeletedReference(sessionId, item.referenceId)?.setId !== set.setId) }))
@@ -91,10 +79,6 @@ export function registerReferenceTools(ctx: Context, store: AnnotationStore, sou
     })
     toolCtx.tools.register(list)
     toolCtx.tools.register(read)
-    toolCtx.inject(['executorToolBridge'], bridgeCtx => {
-      for (const toolName of ['dsh_reference_list', 'dsh_reference_read']) {
-        bridgeCtx.executorToolBridge.register(bridgeCtx, { key: toolName, toolName, version: '1', effect: 'read' })
-      }
-    })
+
   })
 }

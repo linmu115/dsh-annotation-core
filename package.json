@@ -1,6 +1,6 @@
 {
   "name": "dsh-annotation-core",
-  "version": "0.3.10-dev.0",
+  "version": "0.3.10-dev.1",
   "private": false,
   "description": "Shared annotation state, submission, prompt, and UI core for DeepSeek Harness plugins.",
   "type": "module",
@@ -120,7 +120,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --pool=threads --maxWorkers=1",
     "vitest": "vitest --pool=threads --maxWorkers=1",
-    "check": "pnpm typecheck && pnpm test && pnpm pack --dry-run --json"
+    "check": "pnpm typecheck && pnpm test && pnpm pack --dry-run --json",
+    "build:official": "node scripts/build-official.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
@@ -136,8 +137,7 @@
     "@deepseek-ai/schemastery": "*",
     "react": "*",
     "react-dom": "*",
-    "@deepseek-ai/dsh-tools": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-executor-tool-bridge": "0.1.2-rc.1"
+    "@deepseek-ai/dsh-tools": "0.1.2-rc.1"
   },
   "dependencies": {
     "zod": "4.4.3"
@@ -160,7 +160,7 @@
     "@deepseek-ai/dsh-storage-domain": "0.1.2-rc.1",
     "@deepseek-ai/dsh-storage-json": "0.1.2-rc.1",
     "@deepseek-ai/dsh-system-prompt": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-tools": "link:../deepseek-harness/packages/core/tools",
+    "@deepseek-ai/dsh-tools": "0.1.2-rc.1",
     "@deepseek-ai/dsh-timeout": "0.1.2-rc.1",
     "@deepseek-ai/dsh-typert-loader": "0.1.2-rc.1",
     "@deepseek-ai/dsh-typert-protocol": "0.1.2-rc.1",
@@ -176,8 +176,7 @@
     "tsdown": "^0.22.2",
     "typescript": "^5.9.0",
     "unrun": "^0.3.1",
-    "vitest": "^4.1.8",
-    "@deepseek-ai/dsh-executor-tool-bridge": "link:../deepseek-harness/packages/host/executor-tool-bridge"
+    "vitest": "^4.1.8"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -220,9 +219,6 @@
       "optional": true
     },
     "@deepseek-ai/dsh-tools": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-executor-tool-bridge": {
       "optional": true
     }
   },

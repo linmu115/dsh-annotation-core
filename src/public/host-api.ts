@@ -31,7 +31,18 @@ export interface HostSourceAdapter {
   deleteCommitted?(binding: DeletedReferenceBinding): Promise<void>
 }
 
+export interface InputAcceptance { readonly state: 'accepted' | 'not-accepted' | 'waiting' }
+export interface InputAcceptanceProvider {
+  preview(agent: Agent, messages: readonly Parameters<Agent['send']>[0][], signal: AbortSignal): Promise<void>
+  /** Undefined means this provider never owned these input identities. */
+  read(agent: Agent, inputIds: readonly string[]): InputAcceptance | undefined
+  activeInputIds(agent: Agent): readonly string[]
+  subscribe?(listener: () => void): () => void
+}
 export interface AnnotationCoreHost {
+  readonly inputAcceptance?: {
+    register(provider: InputAcceptanceProvider): () => void
+  }
   registerSourceAdapter(type: SourceType, adapter: HostSourceAdapter): () => void
   /** Read submitted references and the supplied agent's current input batch, excluding drafts. */
   listReferences?(agent: Agent): readonly ReferenceSet[]

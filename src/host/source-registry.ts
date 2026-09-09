@@ -1,4 +1,5 @@
 import { Service } from '@deepseek-ai/cordis'
+import { InputAcceptanceRegistry } from './input-acceptance.ts'
 import type { Context } from '@deepseek-ai/cordis'
 
 import type { ReferenceItem } from '../domain/model.ts'
@@ -35,6 +36,7 @@ export class SourcePreparationError extends Error {
 }
 
 export class HostSourceRegistry extends Service implements AnnotationCoreHost {
+  readonly inputAcceptance = new InputAcceptanceRegistry()
   private readonly adapters = new Map<SourceType, HostSourceAdapter>()
   private readonly adapterListeners = new Set<(type: SourceType) => void>()
 
