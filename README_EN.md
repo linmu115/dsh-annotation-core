@@ -2,9 +2,9 @@
 
 Shared Codex-style annotation bubbles, reliable submission, and durable annotation details for DSH plugins.
 
-`0.3.10-dev.0` requires the paired M5 host worktree. Submission settles against one saved acceptance receipt covering the full input batch. Saving messages alone does not establish acceptance. Executor admission failures retain drafts; late backlinks cannot restore deleted relations.
+`0.3.10-dev.2` uses the public APIs of official DSH RC1, with native input settlement and optional plugin-owned acceptance receipts. Admission failures retain drafts; late backlinks cannot restore deleted relations. No patched host is required.
 
-When the host tools service is available, `dsh_reference_list` and `dsh_reference_read` expose submitted references in the current conversation and its current execution batch. Snapshot reads retain original content; refresh uses the existing source adapter without rewriting submitted input. Forked references expose inherited snapshots without creating backlinks. An independently mounted `executorToolBridge` can export these tools to explicitly selected external executions. Neither arbitrary note paths nor model-driven deletion are exposed.
+When the host tools service is available, `dsh_reference_list` and `dsh_reference_read` expose submitted references in the current conversation and its current execution batch. Snapshot reads retain original content; refresh uses the existing source adapter without rewriting submitted input. Forked references expose inherited snapshots without creating backlinks. The optional Runtime Support plugin bridges these tools into selected Codex executions. Neither arbitrary note paths nor model-driven deletion are exposed.
 
 English · [中文](README.md)
 
