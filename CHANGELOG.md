@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.11-rc2.2 — DSH 0.1.5-rc.2 (2026-09-12)
+
+110 tests passed. RC2 ordered attachment admission, durable message snapshots, and additive instance IDs in logical reference DTOs. Existing unscoped request/commit digests are unchanged.
+
+
 ## 0.3.10-dev.0 - Unreleased
 
 - Settle submitted references only after one saved native or external acceptance receipt covers the user message and annotation context. Saved-only inputs remain unconfirmed; retries do not resend them.

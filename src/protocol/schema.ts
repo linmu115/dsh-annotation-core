@@ -10,6 +10,7 @@ export const OccurrenceSchema = z.number().int().nonnegative()
 
 /** Stable Maintenance identity plus the native IDs needed by older DSH builds. */
 export const MaintenanceLogicalTargetSchema = z.object({
+  dshInstanceId: NonEmptyStringSchema.optional(),
   logicalSessionId: NonEmptyStringSchema.optional(),
   logicalAnchorId: NonEmptyStringSchema.optional(),
   legacySessionId: NonEmptyStringSchema.optional(),
@@ -88,6 +89,7 @@ const ProtocolEnvelopeSchema = { annotationProtocolVersion: z.literal(ANNOTATION
 export const ObsidianReferenceCaptureV2Schema = z.object({
   ...ProtocolEnvelopeSchema,
   type: z.literal('reference-capture'),
+  dshInstanceId: NonEmptyStringSchema.optional(),
   actionId: NonEmptyStringSchema,
   referenceId: NonEmptyStringSchema,
   source: ObsidianNoteReferenceSourceSchema,
