@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
-import type { SubmitImageAttachment } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import type { SubmitAttachment, CommandClaim } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 
 import type { Context } from '../context-types.ts'
 import type { AnnotationCoreClientService } from './service.tsx'
@@ -8,12 +8,6 @@ import { annotationConversationDefinition } from './conversation-projection.tsx'
 
 interface NativeInput {
   beginCommand(claim: CommandClaim, span: { readonly start: number; readonly end: number; readonly draftRev: number }): boolean
-}
-
-interface CommandClaim {
-  readonly token: string
-  readonly images: boolean
-  submit(text: string, actx: unknown, images: readonly SubmitImageAttachment[]): unknown
 }
 
 interface NativeRailInjected {
@@ -26,7 +20,7 @@ type NativeRailProps = NativeRailInjected & {
   readonly input: {
     readonly phase: string
     readonly draftRev: number
-    readonly imageIds: readonly string[]
+    readonly attachmentIds: readonly string[]
     readonly draft: string
   }
 }
@@ -43,15 +37,15 @@ function NativeAnnotationRail(props: NativeRailProps) {
     if (snapshot.pendingCount === 0 || snapshot.transport !== 'native-command-claim' || props.input.phase !== 'plain') return
     const claim: CommandClaim = {
       token: '',
-      images: true,
-      submit: (text: string, _actx: unknown, images: readonly SubmitImageAttachment[]) => handle.submitClaim(text, images),
+      attachments: true,
+      submit: (text: string, _actx: unknown, attachments: readonly SubmitAttachment[]) => handle.submitClaim(text, attachments),
     }
     props.nativeInput.beginCommand(claim, { start: 0, end: 0, draftRev: props.input.draftRev })
   }, [handle, props.input.draftRev, props.input.phase, props.nativeInput, snapshot.pendingCount, snapshot.transport])
 
   return <>
     {handle.renderReferenceRail()}
-    {snapshot.pendingCount > 0 && props.input.imageIds.length > 0 && props.input.draft.trim().length === 0
+    {snapshot.pendingCount > 0 && props.input.attachmentIds.length > 0 && props.input.draft.trim().length === 0
       ? <div className="dshAnnotationBlocked" role="status">先输入正文</div>
       : null}
   </>

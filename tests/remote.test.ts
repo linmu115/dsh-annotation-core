@@ -54,7 +54,6 @@ function mountAgentBoundary(ctx: Context, store: AnnotationStore) {
   ctx.typert.contexts.registerHost('agent', {
     wire: 'agentId',
     wireTypeSymbol: '@deepseek-ai/dsh-session/types#SessionId',
-    identity: (candidate) => candidate === ctx ? SessionId('session-1') : undefined,
     resolve: (id) => id === 'session-1' ? ctx : undefined,
   })
   ctx.typert.register(TYPERT)

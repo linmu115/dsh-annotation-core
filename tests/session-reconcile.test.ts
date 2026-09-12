@@ -1,3 +1,4 @@
+import { installAcceptanceFixture } from './acceptance-fixture.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
@@ -19,6 +20,7 @@ function deferred() {
 
 function fixture(withFlush = true) {
   const ctx = new Context()
+  const acceptance = installAcceptanceFixture(ctx)
   new SessionStore(ctx)
   const session = ctx.sessions.create(SessionId(`session-${crypto.randomUUID()}`))
   if (withFlush) ctx.on('session/flush', async () => {})
@@ -29,7 +31,7 @@ function fixture(withFlush = true) {
     ctx,
     whenIdle: () => idle.promise,
   } as unknown as Agent
-  return { ctx, session, agent, idle, tracker: new SessionSettlementTracker(ctx) }
+  return { ...acceptance, ctx, session, agent, idle, tracker: new SessionSettlementTracker(ctx) }
 }
 
 function contextMessage(id: string, target: string) {
@@ -42,7 +44,7 @@ function contextMessage(id: string, target: string) {
 
 describe('session durability settlement', () => {
   it('waits for the exact user and context events and then an explicit successful flush', async () => {
-    const { ctx, session, agent, tracker } = fixture()
+    const { ctx, session, agent, tracker, accept } = fixture()
     const user = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'question' }] })
     const context = contextMessage('context', user.id)
     const settlement = tracker.begin(agent, { userMessageId: user.id, contextMessageId: context.id })
@@ -55,7 +57,7 @@ describe('session durability settlement', () => {
     session.append('user/message', context, { surfaceOp: 'append' })
     await ctx.sessions.flush(session)
     expect(settled).toBe(false)
-    session.append('agent/input-accepted', { receiver: 'native', turn: 1, inputMessageIds: [user.id, context.id] })
+    accept([user.id, context.id])
     await ctx.sessions.flush(session)
     await expect(settlement.promise).resolves.toEqual({ userObserved: true, contextObserved: true })
   })
@@ -73,9 +75,10 @@ describe('session durability settlement', () => {
     const plain = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'plain' }] })
     const unflushed = noFlush.tracker.begin(noFlush.agent, { userMessageId: plain.id })
     noFlush.session.append('user/message', plain, { surfaceOp: 'append' })
+    noFlush.accept([plain.id])
     unflushed.afterSend()
     noFlush.idle.resolve()
-    await expect(unflushed.promise).rejects.toMatchObject({ code: 'unconfirmed' })
+    await expect(unflushed.promise).rejects.toMatchObject({ code: 'flush' })
 
     const aborted = fixture()
     const abort = new AbortController()
@@ -90,19 +93,19 @@ describe('session durability settlement', () => {
   })
 
   it('joins identical retries without creating a second settlement barrier', async () => {
-    const { ctx, session, agent, tracker } = fixture()
+    const { ctx, session, agent, tracker, accept } = fixture()
     const user = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'same' }] })
     const first = tracker.begin(agent, { userMessageId: user.id })
     const second = tracker.begin(agent, { userMessageId: user.id })
     expect(first.promise).toBe(second.promise)
     session.append('user/message', user, { surfaceOp: 'append' })
-    session.append('agent/input-accepted', { receiver: 'native', turn: 1, inputMessageIds: [user.id] })
+    accept([user.id])
     await ctx.sessions.flush(session)
     await expect(first.promise).resolves.toMatchObject({ userObserved: true })
   })
 
   it('retains reconstructed context as unconfirmed until an exact saved receipt arrives', async () => {
-    const { ctx, session, agent } = fixture()
+    const { ctx, session, agent, accept } = fixture()
     const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
     const selected = 'startup source'
     await store.addReference(session.id, {
@@ -128,13 +131,13 @@ describe('session durability settlement', () => {
       preparedSet: begun.set!, createdAt: 3,
     })
     session.append('user/message', user, { surfaceOp: 'append' })
-    const sources = new HostSourceRegistry(ctx)
+    const sources = ctx.get('annotationCoreHost') as HostSourceRegistry
     const outbox = new BacklinkOutbox(store, sources)
     const reconciler = new StartupSubmissionReconciler(ctx, store, outbox, () => 4)
     await reconciler.reconcile(agent)
     expect(session.deriveMessages().map((message) => message.source.kind)).toEqual(['user', 'dsh-annotation'])
     expect(store.readAdmission(session.id, 'submission')?.state).toBe('enqueued')
-    session.append('agent/input-accepted', { receiver: 'native', turn: 1, inputMessageIds: [user.id, MessageId(contextId)] })
+    accept([user.id, contextId])
     await ctx.sessions.flush(session)
     await reconciler.reconcile(agent)
     expect(store.readAdmission(session.id, 'submission')?.state).toBe('durable')

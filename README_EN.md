@@ -64,3 +64,8 @@ Current client evidence comes from official `0.1.2-alpha.1`, but package metadat
 ## License
 
 MIT
+
+
+## DSH 0.1.5-rc.2 candidate
+
+This candidate is compiled and tested against exactly 0.1.5-rc.2. Native command claims preserve ordered images and files. File receipts resolve only in the receiving Agent scope and roll back unless delivery accepts them. Legacy embedded images and request digests remain compatible. Durable submission evidence records admitted references and the original message identity before delivery; retries check the admission journal before resolving potentially retired receipts. Acceptance and storage flush must both succeed before references are marked sent.

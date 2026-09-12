@@ -1,3 +1,4 @@
+import { installAcceptanceFixture } from './acceptance-fixture.ts'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
@@ -65,11 +66,12 @@ type DeliveryMode = 'accept' | 'reject' | 'drop' | 'saved-only'
 
 function fixture(options: { mode?: DeliveryMode; flush?: 'success' | 'fail' | 'defer' } = {}) {
   const ctx = new Context()
+  const acceptance = installAcceptanceFixture(ctx)
   new SessionStore(ctx)
   new TestAttachments(ctx)
   const session = ctx.sessions.create(SessionId(`session-${crypto.randomUUID()}`))
   const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
-  const sources = new HostSourceRegistry(ctx)
+  const sources = acceptance.sources
   const settlements = new SessionSettlementTracker(ctx)
   const outbox = new BacklinkOutbox(store, sources, () => 100)
   const coordinator = new AnnotationSubmissionCoordinator(ctx, store, sources, settlements, outbox, () => 100)
@@ -118,15 +120,13 @@ function fixture(options: { mode?: DeliveryMode; flush?: 'success' | 'fail' | 'd
         if (decision.kind === 'enter') {
           expect(decision.startsRequestSeries).toBe(true)
           for (const entered of decision.messages) session.append('user/message', entered, { surfaceOp: 'append' })
-          if (options.mode !== 'saved-only') session.append('agent/input-accepted', {
-            receiver: 'native', turn: 1, inputMessageIds: decision.messages.map(entered => entered.id),
-          })
+          if (options.mode !== 'saved-only') acceptance.accept(decision.messages.map(entered => entered.id))
           await ctx.sessions.flush(session)
         }
       })()
     },
   } as unknown as Agent
-  return { ctx, session, store, sources, settlements, coordinator, agent, sends, flushGate }
+  return { ...acceptance, ctx, session, store, sources, settlements, coordinator, agent, sends, flushGate }
 }
 
 async function addReference(store: AnnotationStore, sessionId: string, text = 'selected') {
@@ -167,6 +167,57 @@ function annotatedRequest(store: AnnotationStore, sessionId: string, overrides: 
 }
 
 describe('Host annotated submission transaction', () => {
+  it('preserves ordered file/image refs in the journal and retries after receipt retirement without sending twice', async () => {
+    const f = fixture()
+    const file = { attachmentId: 'file-sha', name: 'note.pdf', bytes: 42 }
+    const resolve = vi.fn(() => file)
+    const commit = vi.fn()
+    const dispose = vi.fn()
+    f.ctx.provide('fileUploads', { resolve, bindPrompt: () => ({ commit, [Symbol.dispose]: dispose }) } as never)
+    await addReference(f.store, f.session.id)
+    const state = f.store.readPending(f.session.id)
+    const attachments = [
+      { type: 'file' as const, receiptId: 'receipt-1' },
+      { type: 'image' as const, mediaType: 'image/png' as const, data: 'aGVsbG8=', name: 'sample.png' },
+      { type: 'file' as const, receiptId: 'receipt-1' },
+    ]
+    const request = { expectedRevision: state.revision, setId: 'set', referenceRevision: state.pending!.revision,
+      clientSubmissionId: 'ordered-submission', text: 'question', attachments,
+      requestDigest: submissionRequestDigest({ text: 'question', attachments }), createdAt: 2 }
+    const first = await f.coordinator.submitAnnotated(f.agent, request)
+    expect(first.kind).toBe('success')
+    expect(commit).toHaveBeenCalledTimes(1)
+    expect(dispose).toHaveBeenCalledTimes(1)
+    const saved = f.store.readAdmission(f.session.id, 'ordered-submission')!.userMessage!
+    expect(saved.id).toBe(f.sends[0]!.message.id)
+    expect(saved.content.map(part => part.type)).toEqual(['text', 'file', 'image', 'file'])
+    expect(saved.content[1]).toEqual({ type: 'file', attachment: file })
+    expect(JSON.stringify(saved)).not.toContain('receipt-1')
+    resolve.mockImplementation(() => { throw new Error('receipt retired') })
+    expect(await f.coordinator.submitAnnotated(f.agent, request)).toEqual(first)
+    expect(f.sends).toHaveLength(1)
+  })
+
+  it('releases file receipt binding and retains reference draft when admission is refused', async () => {
+    const f = fixture()
+    const commit = vi.fn()
+    const dispose = vi.fn()
+    f.ctx.provide('fileUploads', { resolve: () => ({ attachmentId: 'file-sha', name: 'note.txt', bytes: 4 }),
+      bindPrompt: () => ({ commit, [Symbol.dispose]: dispose }) } as never)
+    f.registry.register({ preview: async () => { throw new Error('executor refused file') }, read: () => undefined, activeInputIds: () => [] })
+    await addReference(f.store, f.session.id)
+    const state = f.store.readPending(f.session.id)
+    const attachments = [{ type: 'file' as const, receiptId: 'receipt-1' }]
+    const result = await f.coordinator.submitAnnotated(f.agent, { expectedRevision: state.revision, setId: 'set', referenceRevision: state.pending!.revision,
+      clientSubmissionId: 'refused-file', text: 'question', attachments,
+      requestDigest: submissionRequestDigest({ text: 'question', attachments }), createdAt: 2 })
+    expect(result).toMatchObject({ kind: 'error', code: 'delivery' })
+    expect(commit).not.toHaveBeenCalled()
+    expect(dispose).toHaveBeenCalledOnce()
+    expect(f.sends).toHaveLength(0)
+    expect(f.store.readPending(f.session.id).pending?.state).toBe('pending')
+  })
+
   it('uses the host default model budget before any explicit model selection', async () => {
     const f = fixture()
     const get = f.ctx.get.bind(f.ctx)
@@ -180,9 +231,12 @@ describe('Host annotated submission transaction', () => {
   it('retains the reference draft when executor input admission rejects the complete proposed input', async () => {
     const f = fixture()
     await addReference(f.store, f.session.id)
-    f.ctx.on('agent/input-admission', async ({ messages }) => {
-      expect(messages).toHaveLength(2)
-      throw new Error('Codex context exceeds its byte limit')
+    f.registry.register({
+      preview: async (_agent, messages) => {
+        expect(messages).toHaveLength(2)
+        throw new Error('Codex context exceeds its byte limit')
+      },
+      read: () => undefined, activeInputIds: () => [],
     })
     expect(await f.coordinator.submitAnnotated(f.agent, annotatedRequest(f.store, f.session.id))).toMatchObject({ kind: 'error', code: 'delivery' })
     expect(f.sends).toHaveLength(0)

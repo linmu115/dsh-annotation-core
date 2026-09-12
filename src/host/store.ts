@@ -1,3 +1,4 @@
+import { SubmittedMessageSchema, type SubmittedMessage } from './submitted-message.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { Domain, KvTable } from '@deepseek-ai/dsh-storage-domain'
@@ -102,6 +103,7 @@ export interface AdmissionRecord {
   readonly clientSubmissionId: string
   readonly requestDigest: string
   readonly kind: AdmissionKind
+  readonly userMessage?: SubmittedMessage | undefined
   readonly state: AdmissionState
   readonly setId?: string | undefined
   readonly referenceRevision?: number | undefined
@@ -117,6 +119,7 @@ const AdmissionRecordSchema = z.object({
   clientSubmissionId: NonEmptyStringSchema,
   requestDigest: Sha256DigestSchema,
   kind: z.enum(['annotated', 'plain']),
+  userMessage: SubmittedMessageSchema.optional(),
   state: z.enum(['prepared', 'enqueued', 'durable', 'failed']),
   setId: NonEmptyStringSchema.optional(),
   referenceRevision: NonNegativeIntegerSchema.optional(),
@@ -1166,6 +1169,7 @@ export class AnnotationStore {
   }
 
   async recordEnqueuedSubmission(sessionId: string, input: {
+    userMessage?: SubmittedMessage
     expectedRevision: number
     clientSubmissionId: string
     requestDigest: string
@@ -1177,6 +1181,8 @@ export class AnnotationStore {
     createdAt: number
   }): Promise<{ revision: number; admission: AdmissionRecord; journal: SubmissionJournalEntry | undefined; created: boolean }> {
     Sha256DigestSchema.parse(input.requestDigest)
+    const userMessage = input.userMessage === undefined ? undefined : SubmittedMessageSchema.parse(input.userMessage)
+    if (userMessage !== undefined && userMessage.id !== input.userMessageId) throw new AdmissionConflictError(input.clientSubmissionId)
     if (input.contextDigest !== undefined) Sha256DigestSchema.parse(input.contextDigest)
     if (input.userTextHash !== undefined) Sha256DigestSchema.parse(input.userTextHash)
     return this.mutate<{ revision: number; admission: AdmissionRecord; journal: SubmissionJournalEntry | undefined; created: boolean }>(sessionId, (aggregate) => {
@@ -1187,6 +1193,7 @@ export class AnnotationStore {
         if (
           admission.userMessageId !== input.userMessageId || admission.contextMessageId !== input.contextMessageId
           || admission.userTextHash !== input.userTextHash
+          || (userMessage !== undefined && canonicalSha256(admission.userMessage ?? null) !== canonicalSha256(userMessage))
         ) {
           throw new AdmissionConflictError(input.clientSubmissionId)
         }
@@ -1238,6 +1245,7 @@ export class AnnotationStore {
       const enqueued: AdmissionRecord = {
         ...admission,
         state: 'enqueued',
+        ...(userMessage === undefined ? {} : { userMessage }),
         userMessageId: input.userMessageId,
         ...(input.contextMessageId === undefined ? {} : { contextMessageId: input.contextMessageId }),
         ...(input.userTextHash === undefined ? {} : { userTextHash: input.userTextHash }),

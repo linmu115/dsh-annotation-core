@@ -95,9 +95,12 @@ export class SessionSettlementTracker {
 
   constructor(readonly ctx: Context) {
     ctx.on('session/event', (session, event) => { this.observe(session, event) })
-    ctx.inject(['annotationCoreHost'], scope => {
-      scope.effect(() => acceptanceRegistry(scope)!.subscribe(() => { for (const waiter of this.waiters.values()) this.checkReceipt(waiter) }))
-    })
+    const subscribe = (scope: Context, registry: InputAcceptanceRegistry) => {
+      scope.effect(() => registry.subscribe(() => { for (const waiter of this.waiters.values()) this.checkReceipt(waiter) }))
+    }
+    const registry = acceptanceRegistry(ctx)
+    if (registry !== undefined) subscribe(ctx, registry)
+    else ctx.inject(['annotationCoreHost'], scope => { subscribe(scope, acceptanceRegistry(scope)!) })
     ctx.on('agent/disposed', ({ agent }) => { this.disposeAgent(agent) })
     ctx.effect(() => () => { this.close() }, 'annotation-core.sessionSettlement')
   }

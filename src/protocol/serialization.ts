@@ -1,3 +1,4 @@
+import type { SubmissionAttachment } from './submission-attachments.ts'
 import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment'
 
 import type { PreparedReferenceDocument } from '../domain/budget.ts'
@@ -268,7 +269,12 @@ export function serializePreparedReferenceSet(
 export function submissionRequestDigest(input: {
   readonly text: string
   readonly images?: readonly EncodedImageAttachment[]
+  readonly attachments?: readonly SubmissionAttachment[]
 }): string {
+  if (input.attachments !== undefined) {
+    if (input.images !== undefined) throw new TypeError('Specify images or attachments, not both')
+    return canonicalSha256({ schemaVersion: 2, text: input.text, attachments: input.attachments })
+  }
   return canonicalSha256({
     text: input.text,
     images: (input.images ?? []).map((image) => ({

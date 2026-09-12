@@ -1,3 +1,6 @@
+import { SubmittedMessageSchema } from './submitted-message.ts'
+import type { SubmissionAttachment } from '../protocol/submission-attachments.ts'
+import type { PromptFileBinding } from '@deepseek-ai/dsh-client-file-upload'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { acceptanceRegistry } from './input-acceptance.ts'
@@ -10,7 +13,7 @@ import {
   serializePreparedReferenceSet,
   submissionRequestDigest,
 } from '../protocol/index.ts'
-import { createDirectUserMessage } from './admit-images.ts'
+import { prepareSubmission } from './admit-images.ts'
 import type { SubmitImageAttachment } from './admit-images.ts'
 import type { BacklinkOutbox } from './backlink-outbox.ts'
 import { prepareReferenceSet } from './prepare-reference-set.ts'
@@ -32,6 +35,7 @@ export interface SubmitAnnotatedInput {
   readonly requestDigest: string
   readonly text: string
   readonly images?: readonly SubmitImageAttachment[]
+  readonly attachments?: readonly SubmissionAttachment[]
   readonly useSavedSnapshotFor?: readonly string[]
   readonly createdAt: number
 }
@@ -42,6 +46,7 @@ export interface SubmitPlainInput {
   readonly requestDigest: string
   readonly text: string
   readonly images?: readonly SubmitImageAttachment[]
+  readonly attachments?: readonly SubmissionAttachment[]
   readonly createdAt: number
 }
 
@@ -130,7 +135,7 @@ export class AnnotationSubmissionCoordinator {
       return { result: this.resumeKnown(agent, known, signal) }
     }
 
-    const capabilityFailure = await this.checkSubmissionCapability(agent, input.images, signal)
+    const capabilityFailure = await this.checkSubmissionCapability(agent, input.images ?? input.attachments?.filter(part => part.type === 'image'), signal)
     if (capabilityFailure !== undefined) return capabilityFailure
     const pending = this.store.readPending(agent.id)
     if (pending.pending?.setId !== input.setId || pending.pending.revision !== input.referenceRevision) {
@@ -158,9 +163,13 @@ export class AnnotationSubmissionCoordinator {
     if (!begun.created) return { result: this.resumeKnown(agent, begun.record, signal) }
     const preparedSet = beginReferenceCommit(prepared.set, prepared.set.revision)
 
-    let message
+    let preparedSubmission
     try {
-      message = await createDirectUserMessage({
+      preparedSubmission = await prepareSubmission({
+        agent,
+        requestId: input.clientSubmissionId,
+        fileUploads: this.ctx.get('fileUploads'),
+        ...(input.attachments === undefined ? {} : { ordered: input.attachments }),
         attachments: this.ctx.attachments,
         text: input.text,
         ...(input.images === undefined ? {} : { images: input.images }),
@@ -170,6 +179,8 @@ export class AnnotationSubmissionCoordinator {
       return { kind: 'error', code: 'image-admission', message: errorText(error) }
     }
 
+    const { message } = preparedSubmission
+    using receiptBinding = preparedSubmission.binding
     const serialized = serializePreparedReferenceSet(preparedSet, prepared.documents)
     const contextMessageId = annotationContextMessageId({
       sessionId: agent.id,
@@ -187,6 +198,7 @@ export class AnnotationSubmissionCoordinator {
       return { kind: 'error', code: 'delivery', message: errorText(error) }
     }
     await this.store.recordEnqueuedSubmission(agent.id, {
+      userMessage: SubmittedMessageSchema.parse(message),
       expectedRevision: begun.revision,
       clientSubmissionId: input.clientSubmissionId,
       requestDigest: input.requestDigest,
@@ -197,7 +209,7 @@ export class AnnotationSubmissionCoordinator {
       preparedSet,
       createdAt: input.createdAt,
     })
-    return { result: this.deliverAndSettle(agent, input.clientSubmissionId, message, signal) }
+    return { result: this.deliverAndSettle(agent, input.clientSubmissionId, message, signal, receiptBinding) }
   }
 
   private async submitPlainExclusive(
@@ -213,7 +225,7 @@ export class AnnotationSubmissionCoordinator {
       }
       return { result: this.resumeKnown(agent, known, signal) }
     }
-    const capabilityFailure = await this.checkSubmissionCapability(agent, input.images, signal)
+    const capabilityFailure = await this.checkSubmissionCapability(agent, input.images ?? input.attachments?.filter(part => part.type === 'image'), signal)
     if (capabilityFailure !== undefined) return capabilityFailure
     const begun = await this.store.beginPlainAdmission(agent.id, {
       expectedRevision: input.expectedRevision,
@@ -222,9 +234,13 @@ export class AnnotationSubmissionCoordinator {
       createdAt: input.createdAt,
     })
     if (!begun.created) return { result: this.resumeKnown(agent, begun.record, signal) }
-    let message
+    let preparedSubmission
     try {
-      message = await createDirectUserMessage({
+      preparedSubmission = await prepareSubmission({
+        agent,
+        requestId: input.clientSubmissionId,
+        fileUploads: this.ctx.get('fileUploads'),
+        ...(input.attachments === undefined ? {} : { ordered: input.attachments }),
         attachments: this.ctx.attachments,
         text: input.text,
         ...(input.images === undefined ? {} : { images: input.images }),
@@ -233,6 +249,8 @@ export class AnnotationSubmissionCoordinator {
       await this.failTerminal(agent.id, input.clientSubmissionId, error)
       return { kind: 'error', code: 'image-admission', message: errorText(error) }
     }
+    const { message } = preparedSubmission
+    using receiptBinding = preparedSubmission.binding
     try {
       await acceptanceRegistry(this.ctx)?.preview(agent, [message], signal ?? new AbortController().signal)
     } catch (error) {
@@ -240,13 +258,14 @@ export class AnnotationSubmissionCoordinator {
       return { kind: 'error', code: 'delivery', message: errorText(error) }
     }
     await this.store.recordEnqueuedSubmission(agent.id, {
+      userMessage: SubmittedMessageSchema.parse(message),
       expectedRevision: begun.revision,
       clientSubmissionId: input.clientSubmissionId,
       requestDigest: input.requestDigest,
       userMessageId: message.id,
       createdAt: input.createdAt,
     })
-    return { result: this.deliverAndSettle(agent, input.clientSubmissionId, message, signal) }
+    return { result: this.deliverAndSettle(agent, input.clientSubmissionId, message, signal, receiptBinding) }
   }
 
   private async checkSubmissionCapability(agent: Agent, images: readonly SubmitImageAttachment[] | undefined, signal?: AbortSignal): Promise<SubmissionFailure | undefined> {
@@ -261,6 +280,7 @@ export class AnnotationSubmissionCoordinator {
     if (input.text.trim().length === 0) throw new RangeError('Submission requires nonempty text')
     const actual = submissionRequestDigest({
       text: input.text,
+      ...(input.attachments === undefined ? {} : { attachments: input.attachments }),
       ...(input.images === undefined ? {} : { images: input.images }),
     })
     if (actual !== input.requestDigest) throw new AdmissionConflictError(input.clientSubmissionId)
@@ -291,6 +311,7 @@ export class AnnotationSubmissionCoordinator {
     clientSubmissionId: string,
     message: Parameters<Agent['send']>[0],
     signal?: AbortSignal,
+    receiptBinding?: PromptFileBinding,
   ): Promise<SubmissionResult> {
     const admission = this.store.readAdmission(agent.id, clientSubmissionId)
     if (admission === undefined || admission.userMessageId !== message.id) {
@@ -303,6 +324,7 @@ export class AnnotationSubmissionCoordinator {
     })
     try {
       agent.send(message, 'next-turn', true)
+      receiptBinding?.commit()
     } catch (error) {
       await this.failTerminal(agent.id, clientSubmissionId, error)
       return { kind: 'error', code: 'delivery', message: errorText(error) }

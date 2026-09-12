@@ -1,6 +1,6 @@
 {
   "name": "dsh-annotation-core",
-  "version": "0.3.10-dev.2",
+  "version": "0.3.11-rc2.1",
   "private": false,
   "description": "Shared annotation state, submission, prompt, and UI core for DeepSeek Harness plugins.",
   "type": "module",
@@ -125,46 +125,47 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
-    "@deepseek-ai/dsh-agent": "*",
-    "@deepseek-ai/dsh-attachment": "*",
-    "@deepseek-ai/dsh-client-ui-conversation": "*",
-    "@deepseek-ai/dsh-client-ui-input-trigger": "*",
-    "@deepseek-ai/dsh-llm": "*",
-    "@deepseek-ai/dsh-session": "*",
-    "@deepseek-ai/dsh-storage-domain": "*",
-    "@deepseek-ai/dsh-system-prompt": "*",
-    "@deepseek-ai/dsh-typert-protocol": "*",
+    "@deepseek-ai/dsh-agent": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-attachment": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-ui-input-trigger": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-llm": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-session": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-storage-domain": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.5-rc.2",
     "@deepseek-ai/schemastery": "*",
     "react": "*",
     "react-dom": "*",
-    "@deepseek-ai/dsh-tools": "0.1.2-rc.1"
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-file-upload": "0.1.5-rc.2"
   },
   "dependencies": {
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.2",
-    "@deepseek-ai/dsh-agent": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-agent-loop": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-api-gateway": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-api-remotes": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-attachment": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-attachment-local": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-client-ui-conversation": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-client-ui-input-trigger": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-client-ui-slots": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-llm": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-session": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-scope": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-storage": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-storage-domain": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-storage-json": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-system-prompt": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-tools": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-timeout": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-typert-loader": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-typert-protocol": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-typert-registry": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-agent": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-agent-loop": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-api-gateway": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-api-remotes": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-attachment": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-attachment-local": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-ui-input-trigger": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-llm": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-session": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-scope": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-storage": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-storage-domain": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-storage-json": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-timeout": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-typert-loader": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-typert-registry": "0.1.5-rc.2",
     "@deepseek-ai/schemastery": "3.18.2",
     "@types/jsdom": "21.1.7",
     "@types/node": "^24.0.0",
@@ -176,7 +177,8 @@
     "tsdown": "^0.22.2",
     "typescript": "^5.9.0",
     "unrun": "^0.3.1",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@deepseek-ai/dsh-client-file-upload": "0.1.5-rc.2"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -219,6 +221,9 @@
       "optional": true
     },
     "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-file-upload": {
       "optional": true
     }
   },

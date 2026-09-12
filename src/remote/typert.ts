@@ -56,6 +56,10 @@ const SubmitImageAttachmentSchema = z.object({
   data: z.string(),
   name: z.string().optional(),
 }).strict()
+const SubmitAttachmentSchema = z.discriminatedUnion('type', [
+  SubmitImageAttachmentSchema.extend({ type: z.literal('image') }),
+  z.object({ type: z.literal('file'), receiptId: z.string().min(1) }).strict(),
+])
 const SubmitAnnotatedRequestSchema = z.object({
   ...MutationBase,
   setId: z.string().min(1),
@@ -64,17 +68,19 @@ const SubmitAnnotatedRequestSchema = z.object({
   requestDigest: Sha256DigestSchema,
   text: z.string(),
   images: z.array(SubmitImageAttachmentSchema).optional(),
+  attachments: z.array(SubmitAttachmentSchema).optional(),
   useSavedSnapshotFor: z.array(z.string().min(1)).optional(),
   createdAt: RevisionSchema,
-}).strict()
+}).strict().refine(value => value.images === undefined || value.attachments === undefined, 'Specify images or attachments, not both')
 const SubmitPlainClaimRequestSchema = z.object({
   ...MutationBase,
   clientSubmissionId: z.string().min(1),
   requestDigest: Sha256DigestSchema,
   text: z.string(),
   images: z.array(SubmitImageAttachmentSchema).optional(),
+  attachments: z.array(SubmitAttachmentSchema).optional(),
   createdAt: RevisionSchema,
-}).strict()
+}).strict().refine(value => value.images === undefined || value.attachments === undefined, 'Specify images or attachments, not both')
 const RetryBacklinkRequestSchema = z.object({
   ...MutationBase,
   setId: z.string().min(1),

@@ -1,7 +1,7 @@
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { describe, expect, it, vi } from 'vitest'
 
-import { createDirectUserMessage } from '../src/host/admit-images.ts'
+import { createDirectUserMessage, prepareSubmission } from '../src/host/admit-images.ts'
 
 const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nLkAAAAASUVORK5CYII='
 
@@ -39,5 +39,25 @@ describe('official image admission', () => {
       images: [{ mediaType: 'image/png', data: pixel }],
     })).rejects.toThrow('batch failed')
     await expect(createDirectUserMessage({ attachments, text: '  ', images: [] })).rejects.toThrow(/nonempty/)
+  })
+})
+
+
+describe('RC2 file receipt boundary', () => {
+  it('resolves every file in the receiving Agent before image storage and refuses a foreign receipt', async () => {
+    const agent = { id: 'receiver' } as never
+    const admitPromptContent = vi.fn()
+    const resolve = vi.fn(() => undefined)
+    const bindPrompt = vi.fn()
+    await expect(prepareSubmission({
+      attachments: { admitPromptContent } as never, fileUploads: { resolve, bindPrompt }, agent,
+      requestId: 'request', text: 'caption', ordered: [
+        { type: 'image', mediaType: 'image/png', data: pixel },
+        { type: 'file', receiptId: 'another-session-receipt' },
+      ],
+    })).rejects.toThrow('unavailable in this session')
+    expect(resolve).toHaveBeenCalledWith(agent, 'another-session-receipt')
+    expect(admitPromptContent).not.toHaveBeenCalled()
+    expect(bindPrompt).not.toHaveBeenCalled()
   })
 })

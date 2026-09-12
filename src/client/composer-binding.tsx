@@ -1,4 +1,6 @@
-import type { SubmitImageAttachment, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment'
+import { submissionAttachmentFields, type SubmissionAttachment } from '../protocol/submission-attachments.ts'
+import type { SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type * as React from 'react'
 
 import type { ReferenceSet } from '../domain/model.ts'
@@ -252,7 +254,7 @@ export class ComposerBinding implements EmbeddedComposerHandle {
     }
   }
 
-  async submitClaim(text: string, images: readonly SubmitImageAttachment[]): Promise<SubmitOutcome> {
+  async submitClaim(text: string, images: readonly (SubmissionAttachment | EncodedImageAttachment)[]): Promise<SubmitOutcome> {
     const state = this.store.getSnapshot()
     if (state.status !== 'ready') return { kind: 'error', text: state.error ?? '注释内核状态未知，已阻止发送' }
     return this.submitCore(text, images, state)
@@ -260,11 +262,12 @@ export class ComposerBinding implements EmbeddedComposerHandle {
 
   private async submitCore(
     text: string,
-    images: readonly SubmitImageAttachment[],
+    images: readonly (SubmissionAttachment | EncodedImageAttachment)[],
     state: ReferenceSessionSnapshot,
   ): Promise<SubmitOutcome> {
     if (text.trim().length === 0) return { kind: 'error', text: images.length === 0 ? '请输入正文' : '先输入正文' }
-    const requestDigest = submissionRequestDigest({ text, ...(images.length === 0 ? {} : { images }) })
+    const fields = submissionAttachmentFields(images)
+    const requestDigest = submissionRequestDigest({ text, ...fields })
     const identity = await this.identityFor(requestDigest)
     if ('settled' in identity) {
       if (identity.settled.kind === 'success') {
@@ -286,7 +289,7 @@ export class ComposerBinding implements EmbeddedComposerHandle {
             clientSubmissionId: identity.clientSubmissionId,
             requestDigest,
             text,
-            ...(images.length === 0 ? {} : { images }),
+            ...fields,
             createdAt: Date.now(),
           }))
         : unwrapRemote(await this.options.remote.submitPlainClaim({
@@ -294,7 +297,7 @@ export class ComposerBinding implements EmbeddedComposerHandle {
             clientSubmissionId: identity.clientSubmissionId,
             requestDigest,
             text,
-            ...(images.length === 0 ? {} : { images }),
+            ...fields,
             createdAt: Date.now(),
           }))
       if (result.kind === 'error') {
