@@ -24,7 +24,7 @@ describe('workspace selection and real target composer navigation',()=>{
     expect(list).toHaveBeenLastCalledWith('workspace','page-one')
     await click('Cold session 201');expect(select).toHaveBeenCalledWith('cold-201')
     expect(document.querySelector('[role=alert]')?.textContent).toContain('Target is unavailable');expect(close).not.toHaveBeenCalled()
-    await click('← 工作区');expect(button('Workspace')).toBeDefined()
+    await click('工作区');expect(button('Workspace')).toBeDefined()
   })
   it('opens the full target, waits for its composer and adds one bubble without editing either draft or attachment',async()=>{
     const ctx=new Context();let current='source'
