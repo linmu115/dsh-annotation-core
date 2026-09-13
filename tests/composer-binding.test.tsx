@@ -51,6 +51,51 @@ function remote(initial: ReferenceSet | null = set()) {
 }
 
 describe('shared annotation composer binding', () => {
+  it('updates multiple composers over streams without opening idle unary waits', async () => {
+    const fake = remote(null)
+    let publish!: () => void
+    const update = new Promise<void>(resolve => { publish = resolve })
+    const waitRevision = vi.fn(() => { throw new Error('Unary wait must not be used') })
+    let cancelled = 0
+    fake.value.waitRevision = waitRevision
+    fake.value.watchPending = async function* (signal) {
+      yield { revision: 0, pending: null }
+      await update
+      yield { revision: 1, pending: set(1) }
+      await new Promise<void>(resolve => signal!.addEventListener('abort', () => { cancelled += 1; resolve() }, { once: true }))
+    }
+    const stores = Array.from({ length: 8 }, () => new ReferenceSessionStore(fake.value))
+    try {
+      await Promise.all(stores.map(store => store.ready()))
+      publish()
+      await vi.waitFor(() => expect(stores.every(store => store.getSnapshot().pending?.items.length === 1)).toBe(true))
+      expect(waitRevision).not.toHaveBeenCalled()
+    } finally { for (const store of stores) store.dispose() }
+    expect(cancelled).toBe(8)
+  })
+
+  it('reconnects an ended update stream and reads changes made while disconnected', async () => {
+    vi.useFakeTimers()
+    const fake = remote(null)
+    let attempts = 0
+    fake.value.watchPending = async function* (signal) {
+      attempts += 1
+      if (attempts === 1) return
+      yield { revision: 1, pending: set(1) }
+      await new Promise<void>(resolve => signal!.addEventListener('abort', () => resolve(), { once: true }))
+    }
+    const store = new ReferenceSessionStore(fake.value)
+    try {
+      await store.ready()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(store.getSnapshot().status).toBe('blocked')
+      fake.publish(set(1))
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(store.getSnapshot()).toMatchObject({ status: 'ready', revision: 1, pending: { items: [{ referenceId: 'reference-1' }] } })
+      expect(attempts).toBe(2)
+    } finally { store.dispose(); vi.useRealTimers() }
+  })
+
   it('keeps useSyncExternalStore snapshots identity-stable until observable state changes', async () => {
     const fake = remote(null)
     const store = new ReferenceSessionStore(fake.value)

@@ -13,6 +13,7 @@ import { TypertRegistry } from '@deepseek-ai/dsh-typert-registry'
 import { describe, expect, it } from 'vitest'
 
 import { AnnotationStore } from '../src/host/store.ts'
+import { selectedTextHash } from '../src/protocol/index.ts'
 import { apply as applyCore } from '../src/index.ts'
 import { unwrapRemote } from '../src/remote/client.ts'
 import { AnnotationCoreRemoteService } from '../src/remote/service.ts'
@@ -64,7 +65,7 @@ describe('annotation core Typert boundary', () => {
   it('provides explicit Host and Client artifacts with Agent-scoped descriptors', () => {
     expect(TYPERT.package).toBe('dsh-annotation-core')
     expect(TYPERT.face).toBe('host')
-    expect(TYPERT_REMOTE.descriptors).toHaveLength(16)
+    expect(TYPERT_REMOTE.descriptors).toHaveLength(17)
     for (const descriptor of TYPERT_REMOTE.descriptors) {
       expect(descriptor.scope).toMatchObject({ context: 'agent', wire: 'agentId' })
       expect(descriptor.parameters[0]).toMatchObject({ source: 'lookup', lookup: 'agent', wire: 'agentId' })
@@ -79,6 +80,27 @@ describe('annotation core Typert boundary', () => {
     expect(ctx.typert.local.get('annotationCore/readPending')).toBeDefined()
     await dispose()
     expect(ctx.typert.local.get('annotationCore/readPending')).toBeUndefined()
+  })
+
+  it('streams pending updates through the gateway without holding unary requests open', async () => {
+    const ctx = new Context()
+    const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
+    const gateway = mountAgentBoundary(ctx, store)
+    const abort = new AbortController()
+    const stream = await gateway.stream({ namespace: 'annotationCore', method: 'watchPending',
+      args: { agentId: 'session-1' }, signal: abort.signal })
+    const iterator = stream[Symbol.asyncIterator]()
+    expect(await iterator.next()).toMatchObject({ value: { revision: 0, pending: null } })
+    const next = iterator.next()
+    await store.addReference('session-1', { expectedRevision: 0, operationId: 'stream-add', setId: 'stream-set',
+      referenceId: 'stream-ref', createdAt: 1, source: { sourceType: 'dsh-message', selectedText: 'fixture',
+        locator: { profileId: 'web', sessionId: 'source', anchorId: 'a', role: 'assistant', occurrence: 0,
+          selectedTextHash: selectedTextHash('fixture') } } })
+    expect(await next).toMatchObject({ value: { revision: 1, pending: { items: [{ referenceId: 'stream-ref' }] } } })
+    const waiting = iterator.next()
+    abort.abort()
+    await expect(waiting).rejects.toThrow()
+    store.close()
   })
 
   it('authorizes through the resolved Agent and preserves wait cancellation through the gateway', async () => {

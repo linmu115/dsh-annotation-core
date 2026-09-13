@@ -169,6 +169,16 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
     return { revision: state.revision, pending: state.pending ?? null }
   }
 
+  async *watchPending(agent: Agent, signal: AbortSignal) {
+    signal.throwIfAborted()
+    let state = this.store.readPending(agent.id)
+    yield { revision: state.revision, pending: state.pending ?? null }
+    while (!signal.aborted) {
+      state = await this.store.waitRevision(agent.id, state.revision, signal)
+      yield { revision: state.revision, pending: state.pending ?? null }
+    }
+  }
+
   readAdmission(agent: Agent, clientSubmissionId: string) {
     return this.store.readAdmission(agent.id, clientSubmissionId) ?? null
   }

@@ -119,6 +119,7 @@ export const ANNOTATION_CORE_REMOTE_DESCRIPTORS: readonly InvocationDescriptor[]
   descriptor('readSentSet', [jsonParameter('setId', z.string().min(1), 'string')], unknownCodec('dsh-annotation-core#ReadSentSetResult')),
   descriptor('listSentForSession', [], unknownCodec('dsh-annotation-core#ListSentResult')),
   descriptor('waitRevision', [jsonParameter('afterRevision', RevisionSchema, 'number')], unknownCodec('dsh-annotation-core#WaitRevisionResult'), true),
+  { ...descriptor('watchPending', [], unknownCodec('dsh-annotation-core#PendingSnapshot'), true), mode: 'stream' },
   descriptor('readAdmission', [jsonParameter('clientSubmissionId', z.string().min(1), 'string')], unknownCodec('dsh-annotation-core#ReadAdmissionResult')),
   descriptor('submitAnnotated', [jsonParameter('request', SubmitAnnotatedRequestSchema)], unknownCodec('dsh-annotation-core#SubmitAnnotatedResult'), true),
   descriptor('submitPlainClaim', [jsonParameter('request', SubmitPlainClaimRequestSchema)], unknownCodec('dsh-annotation-core#SubmitPlainClaimResult'), true),

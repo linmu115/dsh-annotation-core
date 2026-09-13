@@ -68,6 +68,18 @@ export class ReferenceSessionStore {
     this.polling = true
     let cursor = afterRevision
     try {
+      if (this.remote.watchPending !== undefined) {
+        // The Host mux shares one WebSocket across composers. An idle unary
+        // wait used to occupy an HTTP connection until the next annotation.
+        for await (const next of this.remote.watchPending(this.abort.signal)) {
+          if (next.revision < cursor) throw new Error('Annotation revision moved backwards')
+          cursor = next.revision
+          if (next.revision < this.snapshot.revision) continue
+          this.publish({ status: 'ready', revision: next.revision, pending: next.pending })
+        }
+        if (!this.abort.signal.aborted) throw new Error('Annotation updates disconnected')
+        return
+      }
       while (!this.abort.signal.aborted) {
         const next = unwrapRemote(await this.remote.waitRevision(cursor, this.abort.signal))
         if (next.revision < cursor) throw new Error('Annotation revision moved backwards')

@@ -53,6 +53,7 @@ export interface AnnotationCoreRemoteNamespace {
     revision: number
     pending: ReferenceSet | null
   }>>
+  watchPending?(signal?: AbortSignal): AsyncIterable<{ revision: number; pending: ReferenceSet | null }>
   readAdmission(clientSubmissionId: string): Promise<RemoteResult<AdmissionRecord | null>>
   submitAnnotated(request: SubmitAnnotatedRequest, signal?: AbortSignal): Promise<RemoteResult<SubmissionResult>>
   submitPlainClaim(request: SubmitPlainClaimRequest, signal?: AbortSignal): Promise<RemoteResult<SubmissionResult>>
