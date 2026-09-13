@@ -10,6 +10,8 @@ export const PreparedUpstreamContextSchema = z.object({
     offset: z.number().int().nonnegative(), complete: z.boolean(),
   }).strict()).max(20),
   turnComplete: z.boolean(),
+  omittedIntermediateItems: z.number().int().nonnegative().optional(),
+  detailsCursor: z.string().max(2048).optional(),
   nextCursor: z.string().max(2048).nullable(),
   hasMore: z.boolean(),
 }).strict()

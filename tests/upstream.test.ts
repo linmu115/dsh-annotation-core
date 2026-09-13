@@ -35,7 +35,7 @@ async function fixture(sent=true){
     read:vi.fn(async()=>({referenceId:'reference',sourceVersionId:'v1',cutoffEventId:'completed-answer',
       items:[{eventId:'question',role:'user',text:'Why use gradient checkpointing?',offset:0,complete:true},
         {eventId:'completed-answer',role:'assistant',text:'bounded upstream: recomputation trades time for GPU memory. Full selected answer.',offset:0,complete:true}],
-      selectedTurn:{complete:true},nextCursor:'older-turn',hasMore:true}))}
+      selectedTurn:{complete:true,omittedIntermediateItems:2,detailsCursor:'intermediate-tool'},nextCursor:'older-turn',hasMore:true}))}
   ctx.provide('maintenanceSessionContext' as never,bridge)
   const registry=new HostSourceRegistry(ctx)
   const events=[{type:'turn/start',seq:100,time:10}]
@@ -88,7 +88,7 @@ describe('fixed upstream annotation lifecycle and model access',()=>{
     expect(context.content).toEqual([{type:'text',text:serialized.text}])
     const parsed=parseSerializedAnnotationContext(serialized.text)
     expect(parsed.documents.documents).toEqual([])
-    expect(parsed.annotations.items[0]).toMatchObject({selectedText:'selected',initialContext:{kind:'selected-turn',turnComplete:true,
+    expect(parsed.annotations.items[0]).toMatchObject({selectedText:'selected',initialContext:{kind:'selected-turn',turnComplete:true,omittedIntermediateItems:2,detailsCursor:'intermediate-tool',
       nextCursor:'older-turn',items:[{role:'user',text:'Why use gradient checkpointing?'},{role:'assistant',text:expect.stringContaining('Full selected answer')}]}})
   })
   it('does not silently downgrade to isolated text when turn preparation fails or the fixed version differs',async()=>{

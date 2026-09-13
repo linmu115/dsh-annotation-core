@@ -47,9 +47,12 @@ export async function prepareInitialUpstream(ctx: Context, item: ReferenceItem, 
   const page = z.object({
     referenceId:z.literal(ref.referenceId), sourceVersionId:z.literal(ref.sourceVersionId), cutoffEventId:z.literal(ref.cutoffEventId),
     items:PreparedUpstreamContextSchema.shape.items, nextCursor:PreparedUpstreamContextSchema.shape.nextCursor,
-    hasMore:z.boolean(), selectedTurn:z.object({complete:z.boolean()}),
+    hasMore:z.boolean(), selectedTurn:z.object({complete:z.boolean(),
+      omittedIntermediateItems:z.number().int().nonnegative().optional(),detailsCursor:z.string().max(2048).optional()}),
   }).parse(result)
   return PreparedUpstreamContextSchema.parse({kind:'selected-turn',sourceVersionId:page.sourceVersionId,
     cutoffEventId:page.cutoffEventId,items:page.items,turnComplete:page.selectedTurn.complete,
-    nextCursor:page.nextCursor,hasMore:page.hasMore})
+    nextCursor:page.nextCursor,hasMore:page.hasMore,
+    ...(page.selectedTurn.omittedIntermediateItems === undefined ? {} : {omittedIntermediateItems:page.selectedTurn.omittedIntermediateItems}),
+    ...(page.selectedTurn.detailsCursor === undefined ? {} : {detailsCursor:page.selectedTurn.detailsCursor})})
 }
