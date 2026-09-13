@@ -1,5 +1,5 @@
 import { Service } from '@deepseek-ai/cordis'
-import { inspectUpstream, upstreamOf, upstreamHost } from './upstream.ts'
+import { inspectUpstream, upstreamOf, upstreamHost, prepareInitialUpstream } from './upstream.ts'
 import { InputAcceptanceRegistry } from './input-acceptance.ts'
 import type { Context } from '@deepseek-ai/cordis'
 
@@ -91,6 +91,13 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
   async prepare(item: ReferenceItem, signal: AbortSignal): Promise<ReferenceItem> {
     if(upstreamOf(item)){await inspectUpstream(this.ctx,item);signal.throwIfAborted();return item}
     return this.require(item.sourceType).prepare(item, signal)
+  }
+
+  async prepareUpstreamContext(item: ReferenceItem, executionId: string, maxBytes: number, totalBytes: number, signal: AbortSignal) {
+    signal.throwIfAborted()
+    const context = await prepareInitialUpstream(this.ctx, item, executionId, maxBytes, totalBytes)
+    signal.throwIfAborted()
+    return context
   }
 
   async discardPending(item: ReferenceItem): Promise<boolean> {

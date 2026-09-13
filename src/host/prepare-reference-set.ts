@@ -8,7 +8,7 @@ import type {
   SourceBudgetIssue,
 } from '../domain/budget.ts'
 import type { ObsidianNoteReferenceItem, ReferenceItem, ReferenceSet } from '../domain/model.ts'
-import { documentHash, selectedTextHash } from '../protocol/index.ts'
+import { canonicalSha256, documentHash, selectedTextHash } from '../protocol/index.ts'
 import { ReferenceItemSchema } from './store.ts'
 import type { HostSourceRegistry } from './source-registry.ts'
 import { SourcePreparationError } from './source-registry.ts'
@@ -36,6 +36,7 @@ export interface PrepareReferenceSetOptions {
   readonly budget?: ReferenceBudgetOptions
   readonly useSavedSnapshotFor?: ReadonlySet<string>
   readonly signal?: AbortSignal
+  readonly upstreamExecutionId?: string
 }
 
 function clone<T>(value: T): T {
@@ -153,7 +154,9 @@ export async function prepareReferenceSet(
         }
         catch(error){missing.push(blockedDetail(item,'source-missing',error instanceof Error?error.message:String(error),baselineBudget.estimatedTokens,baselineBudget.limit));continue}
       }
-      preparedItems.push(clone(item))
+      // Reuse and retry prepare from the fixed source; never trust a previous prompt fragment as a source.
+      const {initialContext: _previous, ...unprepared} = item
+      preparedItems.push(clone(unprepared))
       continue
     }
     if (options.useSavedSnapshotFor?.has(item.referenceId)) {
@@ -206,11 +209,30 @@ export async function prepareReferenceSet(
     }
   }
 
-  const prepared: ReferenceSet = Object.freeze({
+  let prepared: ReferenceSet = Object.freeze({
     ...clone(set),
-    items: Object.freeze(preparedItems),
+    items: Object.freeze([...preparedItems]),
   })
-  const budget = calculateReferenceBudget(prepared, options.budget)
+  let budget = calculateReferenceBudget(prepared, options.budget)
+  let remainingReferences = preparedItems.filter(item => item.sourceType === 'dsh-message' && item.locator.upstream).length
+  const totalBytes = Math.min(64000, Math.max(0, budget.limit - budget.estimatedTokens - 256))
+  const executionId = options.upstreamExecutionId ?? `initial:${canonicalSha256([set.sessionId,set.setId,set.revision])}`
+  for (const [index, item] of preparedItems.entries()) {
+    if (item.sourceType !== 'dsh-message' || !item.locator.upstream) continue
+    const bytes = Math.min(16000, Math.floor((budget.limit - budget.estimatedTokens - 256) / remainingReferences) - 128)
+    if (bytes < 1024 || totalBytes < 1024) return {kind:'blocked',reason:'over-budget',details:budget.details}
+    try {
+      const initialContext = await registry.prepareUpstreamContext(item,executionId,bytes,totalBytes,signal)
+      preparedItems[index] = {...item,initialContext}
+    } catch (error) {
+      signal.throwIfAborted()
+      return {kind:'blocked',reason:'source-missing',details:[blockedDetail(item,'source-missing',
+        error instanceof Error ? error.message : String(error),budget.estimatedTokens,budget.limit)]}
+    }
+    remainingReferences--
+    prepared = Object.freeze({...prepared,items:Object.freeze([...preparedItems])})
+    budget = calculateReferenceBudget(prepared,options.budget)
+  }
   if (budget.overBudget) {
     return { kind: 'blocked', reason: 'over-budget', details: budget.details }
   }

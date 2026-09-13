@@ -202,6 +202,7 @@ export interface SerializedAnnotationItem {
   readonly userComment: string
   readonly locator: ReferenceItem['locator']
   readonly documentKey?: string
+  readonly initialContext?: import('../domain/upstream-context.ts').PreparedUpstreamContext
 }
 
 export interface SerializedReferenceDocument {
@@ -239,6 +240,7 @@ export function serializePreparedReferenceSet(
     userComment: item.userComment,
     locator: structuredClone(item.locator),
     ...(item.sourceType === 'obsidian-note' ? { documentKey: documentKeyForItem(item) } : {}),
+    ...(item.sourceType === 'dsh-message' && item.initialContext !== undefined ? {initialContext:structuredClone(item.initialContext)} : {}),
   }))
   const serializedDocuments = documents.map((document): SerializedReferenceDocument => ({
     key: document.key,

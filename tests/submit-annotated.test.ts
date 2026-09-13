@@ -15,7 +15,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { BacklinkOutbox } from '../src/host/backlink-outbox.ts'
 import { annotationPreStep } from '../src/host/pre-step.ts'
-import { availableReferenceSets } from '../src/host/reference-tools.ts'
+import { availableReferenceSets, currentInitialUpstreamBytes } from '../src/host/reference-tools.ts'
 import { SessionSettlementTracker } from '../src/host/session-reconcile.ts'
 import { HostSourceRegistry } from '../src/host/source-registry.ts'
 import {
@@ -167,6 +167,41 @@ function annotatedRequest(store: AnnotationStore, sessionId: string, overrides: 
 }
 
 describe('Host annotated submission transaction', () => {
+  it('delivers source question and completed answer to executor admission and native history once, with a stable retry', async () => {
+    const f=fixture()
+    const read=vi.fn(async()=>({referenceId:'reference',sourceVersionId:'source-v1',cutoffEventId:'source-answer',
+      items:[{eventId:'source-question',role:'user',text:'梯度检查点如何节省显存？',offset:0,complete:true},
+        {eventId:'source-answer',role:'assistant',text:'通过重新计算中间激活值，以额外计算时间换取显存。这是完整回复的结尾。',offset:0,complete:true}],
+      selectedTurn:{complete:true},nextCursor:'earlier',hasMore:true}))
+    f.ctx.provide('maintenanceSessionContext' as never,{protocolVersion:1,read,bind:async()=>({}),
+      inspect:async()=>({selectedText:'换取显存',sourceVersionId:'source-v1',cutoffEventId:'source-answer'})})
+    await f.store.addReference(f.session.id,{expectedRevision:0,operationId:'capture',setId:'set',referenceId:'reference',createdAt:1,
+      source:{sourceType:'dsh-message',selectedText:'换取显存',locator:{profileId:'web',sessionId:'source',anchorId:'source-answer',
+        role:'assistant',occurrence:0,selectedTextHash:selectedTextHash('换取显存'),upstream:{kind:'fixed-upstream',referenceId:'reference',
+          sourceTitle:'机试DeepLearning',sourceVersionId:'source-v1',cutoffEventId:'source-answer',targetSessionId:f.session.id}}}})
+    const preview=vi.fn(async(_agent,messages)=>{
+      const material=JSON.stringify(messages)
+      expect(material).toContain('梯度检查点如何节省显存')
+      expect(material).toContain('这是完整回复的结尾')
+      expect(material).toContain('initialContext')
+    })
+    f.registry.register({preview,read:()=>undefined,activeInputIds:()=>[]})
+    const request=annotatedRequest(f.store,f.session.id,{text:'解释一下这段内容'})
+    f.session.append('turn/start',{turn:1})
+    const first=await f.coordinator.submitAnnotated(f.agent,request)
+    expect(first.kind).toBe('success')
+    const material=JSON.stringify(f.session.snapshotEvents())
+    expect(material).toContain('梯度检查点如何节省显存')
+    expect(material).toContain('这是完整回复的结尾')
+    expect(currentInitialUpstreamBytes(f.store,f.agent)).toBeGreaterThan(300)
+    expect(availableReferenceSets(f.store,f.agent)[0]?.items[0]).toHaveProperty('initialContext')
+    expect(await f.coordinator.submitAnnotated(f.agent,request)).toEqual(first)
+    expect(f.sends).toHaveLength(1)
+    expect(read).toHaveBeenCalledOnce()
+    expect(preview).toHaveBeenCalledOnce()
+    f.session.append('turn/start',{turn:2})
+    expect(currentInitialUpstreamBytes(f.store,f.agent)).toBe(0)
+  })
   it('preserves ordered file/image refs in the journal and retries after receipt retirement without sending twice', async () => {
     const f = fixture()
     const file = { attachmentId: 'file-sha', name: 'note.pdf', bytes: 42 }

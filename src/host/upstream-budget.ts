@@ -29,7 +29,8 @@ export function upstreamHeadroom(contextWindow: number | undefined, request: unk
 /** The model never chooses its execution ID or allowance. Simultaneous calls reserve before awaiting. */
 export class UpstreamToolBudgets {
   private readonly turns = new Map<string, Allowance>()
-  constructor(private readonly nativeUsageFor?: (sessionId: string) => NativeUpstreamUsage | undefined) {}
+  constructor(private readonly nativeUsageFor?: (sessionId: string) => NativeUpstreamUsage | undefined,
+    private readonly initialBytesFor?: (agent: Agent) => number) {}
 
   reserve(agent: Agent, requested = 8000) {
     const turn = agent.session.snapshotEvents().findLast(event => event.type === 'turn/start')
@@ -54,7 +55,9 @@ export class UpstreamToolBudgets {
     let state = this.turns.get(key)
     if (!state) {
       if (this.turns.size >= 10000) throw new Error('引用读取轮次数达到上限')
-      state = { used: 0, limit: headroom }
+      const initialBytes = this.initialBytesFor?.(agent) ?? 0
+      if (!Number.isSafeInteger(initialBytes) || initialBytes < 0) throw new Error('首轮引用上下文额度不可确认')
+      state = { used: initialBytes, limit: headroom }
       this.turns.set(key, state)
     }
     state.limit = Math.min(state.limit, state.used + headroom)

@@ -19,7 +19,7 @@ export function registerUpstreamTools(ctx: Context, store: AnnotationStore, budg
           name: search ? 'dsh_upstream_search' : 'dsh_upstream_read',
           description: search
             ? 'Search the fixed upstream of a submitted reference. Returns bounded excerpts and readCursor links. All reads/searches share this turn\'s budget.'
-            : 'Read a submitted reference\'s fixed upstream, newest first, up to the selected completed AI reply. Follow nextCursor for older material or a long-message continuation. Later source turns are excluded. Never fetch all pages automatically.',
+            : 'Read a submitted reference\'s fixed upstream, up to the selected completed AI reply. Use initialContext.nextCursor to continue an incomplete source turn or read earlier turns after a complete one. Without a cursor, read newest first. Later source turns are excluded. This read is already authorized; do not ask again. Never fetch all pages automatically.',
           parameters: {
             referenceId: { type: 'string', required: true },
             cursor: { type: 'string', description: 'A nextCursor from the same operation, or a readCursor from search for reading.' },

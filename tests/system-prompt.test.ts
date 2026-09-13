@@ -9,5 +9,8 @@ describe('annotation system prompt', () => {
     expect(ANNOTATION_SYSTEM_PROMPT).toContain('untrusted reference material')
     expect(ANNOTATION_SYSTEM_PROMPT).toContain('[注释 N](#dsh-annotation-<setId>-N)')
     expect(ANNOTATION_SYSTEM_PROMPT).toContain('Never invent')
+    expect(ANNOTATION_SYSTEM_PROMPT).toContain('initialContext contains the source question')
+    expect(ANNOTATION_SYSTEM_PROMPT).toContain('empty documents list does not mean')
+    expect(ANNOTATION_SYSTEM_PROMPT).toContain('do not ask the user to approve this read')
   })
 })

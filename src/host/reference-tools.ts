@@ -4,7 +4,7 @@ import { acceptanceRegistry } from './input-acceptance.ts'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ReferenceSet } from '../domain/model.ts'
 import { ReferenceSetSchema, type AnnotationStore } from './store.ts'
-import { canonicalSha256, parseSerializedAnnotationContext } from '../protocol/index.ts'
+import { canonicalJson, canonicalSha256, parseSerializedAnnotationContext } from '../protocol/index.ts'
 import type { HostSourceRegistry } from './source-registry.ts'
 import { upstreamOf } from './upstream.ts'
 import { UpstreamToolBudgets, type NativeUpstreamUsage } from './upstream-budget.ts'
@@ -42,6 +42,27 @@ export function availableReferenceSets(store: AnnotationStore, agent: Agent): re
     store.readDeletedReference(sessionId, item.referenceId)?.setId !== set.setId) }))
 }
 
+/** Count already admitted material once for this user turn, including envelope escaping. */
+export function currentInitialUpstreamBytes(store: AnnotationStore, agent: Agent): number {
+  const sets = new Map<string, ReferenceSet>()
+  // A managed provider can start before the annotation event reaches the journal.
+  const inputIds = acceptanceRegistry(agent.ctx)?.activeInputIds(agent) ?? []
+  for (const id of inputIds) {
+    const journal = store.readSubmissionJournal(agent.session.id,id)
+    if (journal?.preparedSet && journal.contextMessageId && inputIds.includes(journal.contextMessageId))
+      sets.set(journal.preparedSet.setId,journal.preparedSet)
+  }
+  const events = agent.session.snapshotEvents()
+  const start = events.findLastIndex(event => event.type === 'turn/start')
+  for (const event of events.slice(start < 0 ? events.length : start)) {
+    if (event.type !== 'user/message' || event.data.source.kind !== 'dsh-annotation') continue
+    const journal = store.readSubmissionJournal(agent.session.id,event.data.source.targetUserMessageId)
+    if (journal?.preparedSet) sets.set(journal.preparedSet.setId,journal.preparedSet)
+  }
+  return [...sets.values()].flatMap(set => set.items).reduce((bytes,item) => bytes +
+    (item.sourceType === 'dsh-message' && item.initialContext ? Buffer.byteLength(canonicalJson(item.initialContext)) : 0),0)
+}
+
 /** Register read-only tools in the normal DSH policy and result pipeline. */
 export function registerReferenceTools(ctx: Context, store: AnnotationStore, sources: HostSourceRegistry): void {
   const upstreamBudgets = new UpstreamToolBudgets(sessionId => {
@@ -50,7 +71,7 @@ export function registerReferenceTools(ctx: Context, store: AnnotationStore, sou
       contextUsageFor?(sessionId: string): NativeUpstreamUsage | undefined
     } | undefined
     return runtime?.apiVersion === 1 ? runtime.contextUsageFor?.(sessionId) : undefined
-  })
+  }, agent => currentInitialUpstreamBytes(store,agent))
   registerUpstreamTools(ctx, store, upstreamBudgets)
   ctx.inject(['tools'], toolCtx => {
     const list = defineTool({

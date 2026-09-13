@@ -2,6 +2,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ReferenceItem } from '../domain/model.ts'
 import type { DshMessageCapture, DshMessageReferenceSource } from '../protocol/index.ts'
 import { selectedTextHash } from '../protocol/index.ts'
+import { PreparedUpstreamContextSchema } from '../domain/upstream-context.ts'
+import { z } from 'zod'
 
 /** Structural subset of the optional host capability; Engine owns the full DTO and all range rules. */
 export interface UpstreamHost {
@@ -12,7 +14,7 @@ export interface UpstreamHost {
   }>
   inspect(targetNativeSessionId:string,referenceId:string): Promise<{selectedText:string;sourceVersionId:string;cutoffEventId:string}>
   bind(targetNativeSessionId:string,referenceId:string,targetMessageId:string|null): Promise<unknown>
-  read(input:{targetNativeSessionId:string;referenceId:string;executionId:string;cursor?:string;query?:string;maxBytes:number;totalBytes:number}):Promise<unknown>
+  read(input:{targetNativeSessionId:string;referenceId:string;executionId:string;cursor?:string;query?:string;view?:'selected-turn';maxBytes:number;totalBytes:number}):Promise<unknown>
 }
 export function upstreamHost(ctx:Context):UpstreamHost {
   const bridge=ctx.get('maintenanceSessionContext' as never) as UpstreamHost|undefined
@@ -34,4 +36,20 @@ export async function inspectUpstream(ctx:Context,item:ReferenceItem):Promise<vo
   const current=await upstreamHost(ctx).inspect(ref.targetSessionId,ref.referenceId)
   if(current.selectedText!==item.selectedText||current.sourceVersionId!==ref.sourceVersionId||current.cutoffEventId!==ref.cutoffEventId)
     throw new Error('引用气泡与 Maintenance 中的固定来源不一致，请重新选择')
+}
+
+export async function prepareInitialUpstream(ctx: Context, item: ReferenceItem, executionId: string, maxBytes: number, totalBytes: number) {
+  const ref = upstreamOf(item)
+  if (!ref) throw new Error('引用没有固定上游来源')
+  const result = await upstreamHost(ctx).read({targetNativeSessionId:ref.targetSessionId,referenceId:ref.referenceId,
+    executionId,view:'selected-turn',maxBytes,totalBytes})
+  if (Buffer.byteLength(JSON.stringify(result)) > maxBytes) throw new Error('首轮上下文超过已预留额度')
+  const page = z.object({
+    referenceId:z.literal(ref.referenceId), sourceVersionId:z.literal(ref.sourceVersionId), cutoffEventId:z.literal(ref.cutoffEventId),
+    items:PreparedUpstreamContextSchema.shape.items, nextCursor:PreparedUpstreamContextSchema.shape.nextCursor,
+    hasMore:z.boolean(), selectedTurn:z.object({complete:z.boolean()}),
+  }).parse(result)
+  return PreparedUpstreamContextSchema.parse({kind:'selected-turn',sourceVersionId:page.sourceVersionId,
+    cutoffEventId:page.cutoffEventId,items:page.items,turnComplete:page.selectedTurn.complete,
+    nextCursor:page.nextCursor,hasMore:page.hasMore})
 }

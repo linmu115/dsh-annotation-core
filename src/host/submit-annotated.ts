@@ -91,8 +91,8 @@ function prepareFailure(result: Exclude<PrepareResult, { kind: 'ready' }>): Subm
     kind: 'error',
     code: 'source-blocked',
     message: result.reason === 'over-budget'
-      ? `引用内容超出预算：预计 ${result.details[0]?.totalEstimatedTokens ?? 0} token，额度 ${result.details[0]?.limit ?? 0} token。当前引用会附带整篇笔记，不仅是选中文字；请缩小笔记内容或选择上下文更大的模型。`
-      : `引用来源准备失败：${result.reason}`,
+      ? `引用上下文额度不足（额度 ${result.details[0]?.limit ?? 0} token）。跨会话引用需要为所在问答轮次留出空间，笔记引用包含笔记正文；请减少本次引用或选择上下文更大的模型。`
+      : `引用来源准备失败：${result.details[0]?.message ?? result.reason}`,
     details: result,
   }
 }
@@ -146,6 +146,7 @@ export class AnnotationSubmissionCoordinator {
     const model = selection === undefined ? undefined : await this.ctx.get('llm')?.resolveModelInfo(selection.provider, selection.model, signal)
     const contextWindow = model?.context?.contextWindow
     const prepared = await prepareReferenceSet(pending.pending, this.sources, {
+      upstreamExecutionId: `initial:${selectedTextHash(input.clientSubmissionId)}`,
       budget: contextWindow === undefined ? {} : { contextWindow },
       useSavedSnapshotFor: new Set(input.useSavedSnapshotFor ?? []),
       ...(signal === undefined ? {} : { signal }),

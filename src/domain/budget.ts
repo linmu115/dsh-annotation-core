@@ -1,4 +1,5 @@
 import type { ReferenceItem, ReferenceSet } from './model.ts'
+import { serializePreparedReferenceSet } from '../protocol/serialization.ts'
 
 export const FALLBACK_CONTEXT_WINDOW = 65_536
 export const REFERENCE_BUDGET_RATIO = 0.2
@@ -111,7 +112,8 @@ function estimator(options: ReferenceBudgetOptions): (text: string) => number {
 
 function itemText(item: ReferenceItem): string {
   if (item.sourceType === 'dsh-message' && item.locator.upstream)
-    return JSON.stringify({ referenceId:item.referenceId,selectedText:item.selectedText,userComment:item.userComment,locator:item.locator })
+    return JSON.stringify({ referenceId:item.referenceId,selectedText:item.selectedText,userComment:item.userComment,locator:item.locator,
+      ...(item.initialContext === undefined ? {} : {initialContext:item.initialContext}) })
   return item.userComment.length === 0
     ? item.selectedText
     : `${item.selectedText}\n${item.userComment}`
@@ -151,7 +153,9 @@ export function calculateReferenceBudget(
     ...documents.map((document) => document.markdown),
   ].join('\n')
   const perItemTokens = perItem.map(({ text }) => count(text))
-  const estimatedTokens = count(allMaterial)
+  const estimatedTokens = hasUpstream
+    ? Math.max(count(allMaterial),count(serializePreparedReferenceSet(set,documents).text))
+    : count(allMaterial)
   const overBy = Math.max(0, estimatedTokens - limit)
   const details = perItem.map(({ item }, index): SourceBudgetDetail => ({
     referenceId: item.referenceId,

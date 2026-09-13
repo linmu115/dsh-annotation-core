@@ -4,6 +4,7 @@ import type {
   ReferenceSource,
   SourceSnapshot,
 } from '../protocol/index.ts'
+import type { PreparedUpstreamContext } from './upstream-context.ts'
 
 export const REFERENCE_SET_SCHEMA_VERSION = 1 as const
 
@@ -21,6 +22,8 @@ interface ReferenceItemBase {
 export interface DshMessageReferenceItem extends ReferenceItemBase {
   readonly sourceType: 'dsh-message'
   readonly locator: DshMessageLocator
+  /** Host-prepared at send time; absent from unsent captures and older submissions. */
+  readonly initialContext?: PreparedUpstreamContext | undefined
 }
 
 export interface ObsidianNoteReferenceItem extends ReferenceItemBase {

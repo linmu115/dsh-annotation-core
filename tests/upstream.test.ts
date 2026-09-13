@@ -11,6 +11,11 @@ import { UpstreamToolBudgets, upstreamHeadroom, type NativeUpstreamUsage } from 
 import { registerUpstreamTools } from '../src/host/upstream-tools.ts'
 import { availableReferenceSets } from '../src/host/reference-tools.ts'
 import { prepareReferenceSet } from '../src/host/prepare-reference-set.ts'
+import { createAnnotationContextMessage } from '../src/host/commit-journal.ts'
+import { ReferenceSetSchema } from '../src/host/store.ts'
+import { annotationContextMessageId, parseSerializedAnnotationContext, serializePreparedReferenceSet } from '../src/protocol/index.ts'
+import { collectReferenceDocuments } from '../src/domain/budget.ts'
+import type { ReferenceSet } from '../src/domain/model.ts'
 
 const digest='sha256:'+'a'.repeat(64)
 const source:ReferenceSource={sourceType:'dsh-message',selectedText:'selected',locator:{profileId:'web',sessionId:'source',anchorId:'answer',
@@ -27,7 +32,10 @@ async function fixture(sent=true){
   }
   const ctx=new Context()
   const bridge={protocolVersion:1,bind:vi.fn(async()=>({})),inspect:vi.fn(async()=>({selectedText:'selected',sourceVersionId:'v1',cutoffEventId:'completed-answer'})),
-    read:vi.fn(async()=>({items:[{text:'bounded upstream'}]}))}
+    read:vi.fn(async()=>({referenceId:'reference',sourceVersionId:'v1',cutoffEventId:'completed-answer',
+      items:[{eventId:'question',role:'user',text:'Why use gradient checkpointing?',offset:0,complete:true},
+        {eventId:'completed-answer',role:'assistant',text:'bounded upstream: recomputation trades time for GPU memory. Full selected answer.',offset:0,complete:true}],
+      selectedTurn:{complete:true},nextCursor:'older-turn',hasMore:true}))}
   ctx.provide('maintenanceSessionContext' as never,bridge)
   const registry=new HostSourceRegistry(ctx)
   const events=[{type:'turn/start',seq:100,time:10}]
@@ -65,6 +73,46 @@ describe('fixed upstream annotation lifecycle and model access',()=>{
     f.bridge.inspect.mockResolvedValueOnce({selectedText:'selected',sourceVersionId:'v2',cutoffEventId:'completed-answer'})
     expect((await prepareReferenceSet(set,f.registry)).kind).toBe('blocked')
   })
+  it('journals and reconstructs the complete source turn alongside the excerpt without making a document snapshot',async()=>{
+    const f=await fixture(false),set=f.store.readPending('target').pending!
+    const result=await prepareReferenceSet(set,f.registry,{upstreamExecutionId:'initial-test'})
+    expect(result.kind).toBe('ready')
+    if(result.kind!=='ready')throw new Error('Preparation failed')
+    expect(f.bridge.read).toHaveBeenCalledWith(expect.objectContaining({view:'selected-turn',executionId:'initial-test'}))
+    expect(f.store.readPending('target').pending!.items[0]).not.toHaveProperty('initialContext')
+    const persisted=ReferenceSetSchema.parse(JSON.parse(JSON.stringify(result.set))) as ReferenceSet
+    const serialized=serializePreparedReferenceSet(persisted,collectReferenceDocuments(persisted))
+    const journal={clientSubmissionId:'submission',requestDigest:digest,createdAt:2,userMessageId:'user',setId:set.setId,preparedSet:persisted,contextDigest:serialized.digest,
+      contextMessageId:annotationContextMessageId({sessionId:'target',userMessageId:'user',setId:set.setId,digest:serialized.digest})}
+    const context=createAnnotationContextMessage('target',journal)
+    expect(context.content).toEqual([{type:'text',text:serialized.text}])
+    const parsed=parseSerializedAnnotationContext(serialized.text)
+    expect(parsed.documents.documents).toEqual([])
+    expect(parsed.annotations.items[0]).toMatchObject({selectedText:'selected',initialContext:{kind:'selected-turn',turnComplete:true,
+      nextCursor:'older-turn',items:[{role:'user',text:'Why use gradient checkpointing?'},{role:'assistant',text:expect.stringContaining('Full selected answer')}]}})
+  })
+  it('does not silently downgrade to isolated text when turn preparation fails or the fixed version differs',async()=>{
+    const f=await fixture(false),set=f.store.readPending('target').pending!
+    f.bridge.read.mockRejectedValueOnce(new Error('source offline'))
+    expect((await prepareReferenceSet(set,f.registry)).kind).toBe('blocked')
+    f.bridge.read.mockResolvedValueOnce({...await f.bridge.read(),sourceVersionId:'different'})
+    expect((await prepareReferenceSet(set,f.registry)).kind).toBe('blocked')
+    expect(f.store.readPending('target').pending).toEqual(set)
+  })
+  it('shares preparation space across multiple references and charges initial context before later tools',async()=>{
+    const f=await fixture(false),set=f.store.readPending('target').pending!
+    const result=await prepareReferenceSet({...set,items:[set.items[0]!,{...set.items[0]!,number:2}]},f.registry)
+    expect(result.kind).toBe('ready')
+    const calls=f.bridge.read.mock.calls as unknown as [{maxBytes:number;totalBytes:number;executionId:string}][]
+    expect(calls).toHaveLength(2)
+    expect(calls[0]![0].maxBytes).toBeLessThan(6500)
+    expect(calls[0]![0].executionId).toBe(calls[1]![0].executionId)
+    const budget=new UpstreamToolBudgets(undefined,()=>6000)
+    const first=budget.reserve(f.agent,16000)
+    expect(first.bytes).toBe(Math.floor(65536*.2)-6000)
+    first.settle('x'.repeat(first.bytes))
+    expect(()=>budget.reserve(f.agent)).toThrow('额度')
+  })
   it('uses one host-owned allowance for concurrent reads and retries and includes request/tool/output space',async()=>{
     const f=await fixture(),budget=new UpstreamToolBudgets()
     const first=budget.reserve(f.agent,8000),second=budget.reserve(f.agent,8000)
@@ -88,7 +136,7 @@ describe('fixed upstream annotation lifecycle and model access',()=>{
     const exec={agent:f.agent,signal:new AbortController().signal}
     await expect(registered[0].execute({referenceId:'missing'},exec)).rejects.toThrow('没有')
     const result=await registered[0].execute({referenceId:'reference'},exec)
-    expect(JSON.parse(result).items[0].text).toBe('bounded upstream')
+    expect(JSON.parse(result).items[1].text).toContain('bounded upstream')
     expect(f.bridge.read).toHaveBeenLastCalledWith(expect.objectContaining({targetNativeSessionId:'target',executionId:'turn:100:10',maxBytes:8000}))
     await f.store.deleteReferenceLink('target',{expectedRevision:f.store.read('target').revision,setId:'set',referenceId:'reference',deletedAt:5})
     await expect(registered[0].execute({referenceId:'reference'},exec)).rejects.toThrow('没有')

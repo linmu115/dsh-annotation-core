@@ -16,6 +16,7 @@ import {
   updateReferenceComment,
 } from '../domain/state-machine.ts'
 import type { ReferenceItem, ReferenceSet } from '../domain/model.ts'
+import { PreparedUpstreamContextSchema } from '../domain/upstream-context.ts'
 import {
   canonicalSha256,
   DshMessageLocatorSchema,
@@ -37,6 +38,7 @@ const DshReferenceItemSchema = z.object({
   backlinkState: z.literal('not-required'),
   sourceType: z.literal('dsh-message'),
   locator: DshMessageLocatorSchema,
+  initialContext: PreparedUpstreamContextSchema.optional(),
 }).strict()
 
 const ObsidianReferenceItemSchema = z.object({
