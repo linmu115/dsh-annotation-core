@@ -46,7 +46,8 @@
 
 /* Match the installed DSH Modal/Menu theme tokens. Keep these rules scoped to
    the picker so appearance work does not change the annotation delivery rail. */
-.dshCrossSessionOverlay { position:fixed; inset:0; z-index:1000000; display:flex; align-items:center; justify-content:center; padding:24px; font-family:var(--dsw-font-family,system-ui,sans-serif); }
+/* Keep the modal above Sidechat's selection toolbar (2147483000). */
+.dshCrossSessionOverlay { position:fixed; inset:0; z-index:2147483100; display:flex; align-items:center; justify-content:center; padding:24px; font-family:var(--dsw-font-family,system-ui,sans-serif); }
 .dshCrossSessionMask { position:absolute; inset:0; background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.24)); backdrop-filter:var(--dsw-mask-blur,blur(2px)); }
 .dshCrossSessionDialog { position:relative; display:flex; flex-direction:column; width:min(480px,100%); max-height:calc(100dvh - 48px); overflow:hidden; border:0; border-radius:24px; background:var(--dsw-alias-bg-layer-2,#fff); color:var(--dsw-alias-label-primary,#1f1f24); box-shadow:var(--dsw-elevation-prominent,0 16px 48px rgba(0,0,0,.18)); font-size:14px; line-height:22px; }
 .dshCrossSessionDialog * { box-sizing:border-box; }
