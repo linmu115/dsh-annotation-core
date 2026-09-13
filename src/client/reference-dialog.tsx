@@ -51,6 +51,7 @@ export interface ReferenceDialogProps {
 }
 
 function sourceDescription(item: ReferenceItem): string {
+  if(item.sourceType==='dsh-message'&&item.locator.upstream)return `${item.locator.upstream.sourceTitle} · 包含截至该回复完整结束的上游 · AI 按需读取`
   if (item.sourceType === 'dsh-message') return `${item.locator.role === 'user' ? '用户' : '助手'}消息 · ${item.locator.sessionId}`
   const freshness = item.snapshot.freshness === 'captured' ? '已捕获' : item.snapshot.freshness === 'refreshed' ? '已刷新' : '离线快照'
   return `${item.locator.notePath} · ${freshness}`

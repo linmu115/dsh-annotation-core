@@ -1,4 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
+import { captureUpstream,upstreamHost } from '../host/upstream.ts'
+import type { DshMessageCapture } from '../protocol/index.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 
@@ -91,7 +93,22 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
     return { revision: state.revision, pending: state.pending ?? null }
   }
 
-  addReference(agent: Agent, request: AddReferenceRequest) {
+  upstreamDirectory(_agent:Agent,request:{workspaceId?:string;after?:string}){
+    return upstreamHost(this.ctx).directory(request.workspaceId,request.after)
+  }
+  captureUpstream(agent:Agent,request:{capture:DshMessageCapture;operationId:string}){
+    return captureUpstream(this.ctx,agent.id,this.store.read(agent.id).profileId,request.capture,request.operationId)
+  }
+
+  async addReference(agent: Agent, request: AddReferenceRequest) {
+    if (request.source.sourceType === 'dsh-message' && request.source.locator.upstream) {
+      const upstream = request.source.locator.upstream
+      if (upstream.targetSessionId !== agent.id || upstream.referenceId !== request.referenceId)
+        throw new Error('引用气泡不属于当前目标会话')
+      const record = await upstreamHost(this.ctx).inspect(agent.id, upstream.referenceId)
+      if (record.sourceVersionId !== upstream.sourceVersionId || record.cutoffEventId !== upstream.cutoffEventId
+        || record.selectedText !== request.source.selectedText) throw new Error('引用来源记录不一致')
+    }
     return this.store.addReference(agent.id, request)
   }
 
@@ -132,6 +149,10 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
   }
 
   reuseReference(agent: Agent, request: ReuseReferenceRequest) {
+    const source = this.store.listSentForSession(agent.id).flatMap(set => set.items)
+      .find(item => item.referenceId === request.sourceReferenceId)
+    if (source?.sourceType === 'dsh-message' && source.locator.upstream)
+      throw new Error('固定上游引用已可供后续轮次使用；如需新建引用，请从来源回复重新选择')
     return this.store.reuseReference(agent.id, request)
   }
 

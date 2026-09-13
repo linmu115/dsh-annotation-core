@@ -16,6 +16,8 @@ function sourceLabel(set: ReferenceSet, referenceId: string): string {
     const status = item.snapshot.freshness === 'captured' ? '已捕获' : item.snapshot.freshness === 'refreshed' ? '已刷新' : '离线快照'
     return `Obsidian · ${item.locator.notePath} · ${status}`
   }
+  if (item?.sourceType === 'dsh-message' && item.locator.upstream)
+    return `上游引用 · ${item.locator.upstream.sourceTitle} · 至所选回复结束`
   return 'DSH 会话'
 }
 

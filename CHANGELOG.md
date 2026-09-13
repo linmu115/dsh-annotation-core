@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.12-rc2.1 — 2026-09-13
+
+- Add fixed cross-session references, a shared target picker and bounded upstream read/search tools.
+- Persist successful target bindings and retry reference revocation without copying source histories.
+- See docs/changes/2026-09-13-cross-session-upstream.md for pairing and validation.
+
+
 ## 0.3.11-rc2.2 — DSH 0.1.5-rc.2 (2026-09-12)
 
 110 tests passed. RC2 ordered attachment admission, durable message snapshots, and additive instance IDs in logical reference DTOs. Existing unscoped request/commit digests are unchanged.

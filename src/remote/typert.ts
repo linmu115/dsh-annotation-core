@@ -2,7 +2,7 @@ import type { InvocationDescriptor, TypertRemoteContribution } from '@deepseek-a
 import type { TypertContribution } from '@deepseek-ai/dsh-typert-registry/types'
 import { z } from 'zod'
 
-import { ReferenceSourceSchema, Sha256DigestSchema } from '../protocol/index.ts'
+import { ReferenceSourceSchema, Sha256DigestSchema,DshMessageCaptureSchema } from '../protocol/index.ts'
 
 const stringCodec = (symbol: string) => ({ mode: 'strict' as const, typeSymbol: symbol, schema: z.string().min(1) })
 const integerCodec = (symbol: string) => ({ mode: 'strict' as const, typeSymbol: symbol, schema: z.number().int().nonnegative() })
@@ -107,6 +107,8 @@ function descriptor(
 }
 
 export const ANNOTATION_CORE_REMOTE_DESCRIPTORS: readonly InvocationDescriptor[] = [
+  descriptor('upstreamDirectory',[jsonParameter('request',z.object({workspaceId:z.string().max(256).optional(),after:z.string().max(256).optional()}).strict())],unknownCodec('dsh-annotation-core#UpstreamDirectory')),
+  descriptor('captureUpstream',[jsonParameter('request',z.object({capture:DshMessageCaptureSchema,operationId:z.string().min(1).max(256)}).strict())],unknownCodec('dsh-annotation-core#UpstreamSource')),
   descriptor('readPending', [], unknownCodec('dsh-annotation-core#ReadPendingResult')),
   descriptor('addReference', [jsonParameter('request', AddReferenceRequestSchema)], unknownCodec('dsh-annotation-core#AddReferenceResult')),
   descriptor('fenceReferenceOperation', [jsonParameter('request', FenceRequestSchema)], unknownCodec('dsh-annotation-core#FenceResult')),

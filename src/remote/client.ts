@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import type { DshMessageCapture,DshMessageReferenceSource } from '../protocol/index.ts'
 import type { RemoteFailure, RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 
 import type { AdmissionRecord } from '../host/store.ts'
@@ -19,6 +20,8 @@ import type {
 export { TYPERT_REMOTE } from './typert.ts'
 
 export interface AnnotationCoreRemoteNamespace {
+  upstreamDirectory(request:{workspaceId?:string;after?:string}):Promise<RemoteResult<{items:{id:string;title:string}[];nextCursor:string|null}>>
+  captureUpstream(request:{capture:DshMessageCapture;operationId:string}):Promise<RemoteResult<DshMessageReferenceSource>>
   readPending(): Promise<RemoteResult<{ revision: number; pending: ReferenceSet | null }>>
   addReference(request: AddReferenceRequest): Promise<RemoteResult<{
     revision: number

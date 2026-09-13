@@ -146,6 +146,13 @@ export async function prepareReferenceSet(
   for (const item of set.items) {
     if (signal.aborted) throw new DOMException('The operation was aborted', 'AbortError')
     if (item.sourceType === 'dsh-message') {
+      if(item.locator.upstream) {
+        try {
+          if (item.locator.upstream.targetSessionId !== set.sessionId) throw new Error('引用属于另一个目标会话，请重新选择来源')
+          await registry.prepare(item,signal)
+        }
+        catch(error){missing.push(blockedDetail(item,'source-missing',error instanceof Error?error.message:String(error),baselineBudget.estimatedTokens,baselineBudget.limit));continue}
+      }
       preparedItems.push(clone(item))
       continue
     }

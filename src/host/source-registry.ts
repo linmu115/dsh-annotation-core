@@ -1,9 +1,10 @@
 import { Service } from '@deepseek-ai/cordis'
+import { inspectUpstream, upstreamOf, upstreamHost } from './upstream.ts'
 import { InputAcceptanceRegistry } from './input-acceptance.ts'
 import type { Context } from '@deepseek-ai/cordis'
 
 import type { ReferenceItem } from '../domain/model.ts'
-import type { BacklinkReceiptV2 } from '../protocol/index.ts'
+import type { ReferenceCommitReceipt } from './reference-commit-receipt.ts'
 import type { SourceType } from '../protocol/index.ts'
 import type {
   AnnotationCoreHost,
@@ -88,18 +89,40 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
   }
 
   async prepare(item: ReferenceItem, signal: AbortSignal): Promise<ReferenceItem> {
+    if(upstreamOf(item)){await inspectUpstream(this.ctx,item);signal.throwIfAborted();return item}
     return this.require(item.sourceType).prepare(item, signal)
   }
 
-  async discardPending(item: ReferenceItem): Promise<void> {
-    await this.adapters.get(item.sourceType)?.discardPending?.(item)
+  async discardPending(item: ReferenceItem): Promise<boolean> {
+    const upstream = upstreamOf(item)
+    if (upstream) {
+      await upstreamHost(this.ctx).bind(upstream.targetSessionId, upstream.referenceId, null)
+      return true
+    }
+    const adapter = this.adapters.get(item.sourceType)
+    if (!adapter?.discardPending) return false
+    await adapter.discardPending(item)
+    return true
   }
 
-  async commitBacklink(binding: SentReferenceBinding): Promise<BacklinkReceiptV2 | undefined> {
+  async commitBacklink(binding: SentReferenceBinding): Promise<ReferenceCommitReceipt | undefined> {
+    const upstream = upstreamOf(binding.item)
+    if (upstream) {
+      if (upstream.targetSessionId !== binding.sessionId) throw new Error('引用绑定的目标会话不一致')
+      await upstreamHost(this.ctx).bind(binding.sessionId, upstream.referenceId, binding.userMessageId)
+      return { kind: 'maintenance-reference', referenceId: upstream.referenceId,
+        targetMessageId: binding.userMessageId, writtenAt: Date.now() }
+    }
     return this.adapters.get(binding.item.sourceType)?.commitBacklink?.(binding)
   }
 
   async deleteCommitted(binding: DeletedReferenceBinding): Promise<void> {
+    const upstream = upstreamOf(binding.item)
+    if (upstream) {
+      if (upstream.targetSessionId !== binding.sessionId) throw new Error('引用绑定的目标会话不一致')
+      await upstreamHost(this.ctx).bind(binding.sessionId, upstream.referenceId, null)
+      return
+    }
     const adapter = this.adapters.get(binding.item.sourceType)
     if (adapter?.deleteCommitted === undefined) {
       if (binding.item.sourceType === 'dsh-message') return

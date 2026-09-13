@@ -64,7 +64,7 @@ describe('annotation core Typert boundary', () => {
   it('provides explicit Host and Client artifacts with Agent-scoped descriptors', () => {
     expect(TYPERT.package).toBe('dsh-annotation-core')
     expect(TYPERT.face).toBe('host')
-    expect(TYPERT_REMOTE.descriptors).toHaveLength(14)
+    expect(TYPERT_REMOTE.descriptors).toHaveLength(16)
     for (const descriptor of TYPERT_REMOTE.descriptors) {
       expect(descriptor.scope).toMatchObject({ context: 'agent', wire: 'agentId' })
       expect(descriptor.parameters[0]).toMatchObject({ source: 'lookup', lookup: 'agent', wire: 'agentId' })

@@ -6,6 +6,9 @@ import type { ReferenceSet } from '../domain/model.ts'
 import { ReferenceSetSchema, type AnnotationStore } from './store.ts'
 import { canonicalSha256, parseSerializedAnnotationContext } from '../protocol/index.ts'
 import type { HostSourceRegistry } from './source-registry.ts'
+import { upstreamOf } from './upstream.ts'
+import { UpstreamToolBudgets, type NativeUpstreamUsage } from './upstream-budget.ts'
+import { registerUpstreamTools } from './upstream-tools.ts'
 
 /** Read submitted snapshots and the calling execution's exact prepared batch. */
 export function availableReferenceSets(store: AnnotationStore, agent: Agent): readonly ReferenceSet[] {
@@ -41,18 +44,44 @@ export function availableReferenceSets(store: AnnotationStore, agent: Agent): re
 
 /** Register read-only tools in the normal DSH policy and result pipeline. */
 export function registerReferenceTools(ctx: Context, store: AnnotationStore, sources: HostSourceRegistry): void {
+  const upstreamBudgets = new UpstreamToolBudgets(sessionId => {
+    const runtime = ctx.get('dshRuntimeSupport' as never) as unknown as {
+      readonly apiVersion: number
+      contextUsageFor?(sessionId: string): NativeUpstreamUsage | undefined
+    } | undefined
+    return runtime?.apiVersion === 1 ? runtime.contextUsageFor?.(sessionId) : undefined
+  })
+  registerUpstreamTools(ctx, store, upstreamBudgets)
   ctx.inject(['tools'], toolCtx => {
     const list = defineTool({
       name: 'dsh_reference_list',
       description: 'List references submitted in this conversation. Unsent drafts are excluded.',
-      parameters: {},
+      parameters: { after: { type: 'string', description: 'Opaque nextCursor returned by the preceding list page.' } },
       output: { schema: { type: 'string' }, render: (_args, text) => [{ type: 'text', text }] },
-      async execute(_args, exec) {
+      async execute(args, exec) {
         if (exec.agent === undefined) throw new Error('A conversation is required')
-        return JSON.stringify(availableReferenceSets(store, exec.agent).flatMap(set => set.items.map(item => ({
+        const all = availableReferenceSets(store, exec.agent).flatMap(set => set.items.map(item => ({
           setId: set.setId, referenceId: item.referenceId, sourceType: item.sourceType,
-          selectedText: item.selectedText, backlinkState: item.backlinkState,
-        }))))
+          selectedText: item.selectedText.slice(0, 180), backlinkState: item.backlinkState,
+          ...(upstreamOf(item) ? { context: 'fixed-upstream', readTool: 'dsh_upstream_read', searchTool: 'dsh_upstream_search' } : {}),
+        })))
+        const start = args.after ? all.findIndex(item => `${item.setId}:${item.referenceId}` === args.after) + 1 : 0
+        if (args.after && start === 0) throw new Error('Reference list cursor is no longer available')
+        const allowance = all.some(item => 'context' in item) ? upstreamBudgets.reserve(exec.agent) : undefined
+        let output: string | undefined
+        try {
+          const items: typeof all = []
+          let i = start
+          while (i < all.length && items.length < 20) {
+            const candidate = [...items, all[i]!]
+            if (Buffer.byteLength(JSON.stringify(candidate)) + 700 > (allowance?.bytes ?? 8000)) break
+            items.push(all[i++]!)
+          }
+          const last = items.at(-1)
+          output = JSON.stringify({ items, hasMore: i < all.length,
+            nextCursor: i < all.length && last ? `${last.setId}:${last.referenceId}` : null })
+          return output
+        } finally { allowance?.settle(output) }
       },
     })
     const read = defineTool({
@@ -69,6 +98,18 @@ export function registerReferenceTools(ctx: Context, store: AnnotationStore, sou
         const set = availableReferenceSets(store, exec.agent).find(set => set.setId === args.setId)
         const item = set?.items.find(reference => reference.referenceId === args.referenceId)
         if (item === undefined) throw new Error('Reference is unavailable in this conversation')
+        const upstream = upstreamOf(item)
+        if (upstream) {
+          if (args.mode === 'refresh') throw new Error('固定上游不能刷新成最新会话；请使用 dsh_upstream_read 或 dsh_upstream_search')
+          const allowance = upstreamBudgets.reserve(exec.agent)
+          let output: string | undefined
+          try {
+            output = JSON.stringify({ setId: set!.setId, referenceId: item.referenceId,
+              selectedText: item.selectedText.slice(0, 400), previewOnly: true, upstream,
+              readTool: 'dsh_upstream_read', searchTool: 'dsh_upstream_search' })
+            return output
+          } finally { allowance.settle(output) }
+        }
         if (args.mode === 'refresh' && set?.sessionId !== exec.agent.id) throw new Error('Inherited references expose their saved snapshot only')
         const value = args.mode === 'refresh' ? await sources.prepare(item, exec.signal) : item
         exec.signal.throwIfAborted()

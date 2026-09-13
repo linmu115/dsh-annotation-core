@@ -1,3 +1,4 @@
+import { ReferenceCommitReceiptSchema, type ReferenceCommitReceipt } from './reference-commit-receipt.ts'
 import { SubmittedMessageSchema, type SubmittedMessage } from './submitted-message.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
@@ -16,7 +17,6 @@ import {
 } from '../domain/state-machine.ts'
 import type { ReferenceItem, ReferenceSet } from '../domain/model.ts'
 import {
-  BacklinkReceiptV2Schema,
   canonicalSha256,
   DshMessageLocatorSchema,
   ObsidianNoteLocatorSchema,
@@ -24,7 +24,7 @@ import {
   Sha256DigestSchema,
   SourceSnapshotSchema,
 } from '../protocol/index.ts'
-import type { BacklinkReceiptV2, ReferenceSource } from '../protocol/index.ts'
+import type { ReferenceSource } from '../protocol/index.ts'
 
 const NonEmptyStringSchema = z.string().min(1)
 const NonNegativeIntegerSchema = z.number().int().nonnegative()
@@ -179,7 +179,7 @@ export interface BacklinkJob {
   readonly state: 'pending' | 'written' | 'failed'
   readonly attempts: number
   readonly lastError?: string | undefined
-  readonly receipt?: BacklinkReceiptV2 | undefined
+  readonly receipt?: ReferenceCommitReceipt | undefined
   readonly createdAt: number
   readonly updatedAt: number
 }
@@ -190,7 +190,7 @@ const BacklinkJobSchema = z.object({
   state: z.enum(['pending', 'written', 'failed']),
   attempts: NonNegativeIntegerSchema,
   lastError: z.string().optional(),
-  receipt: BacklinkReceiptV2Schema.optional(),
+  receipt: ReferenceCommitReceiptSchema.optional(),
   createdAt: NonNegativeIntegerSchema,
   updatedAt: NonNegativeIntegerSchema,
 }).strict()
@@ -376,7 +376,7 @@ function withPendingDiscardJob(
   item: ReferenceItem,
   now: number,
 ): Readonly<Record<string, PendingDiscardJob>> {
-  if (item.sourceType === 'dsh-message') return aggregate.pendingDiscardJobs
+  if (item.sourceType === 'dsh-message' && !item.locator.upstream) return aggregate.pendingDiscardJobs
   const existing = aggregate.pendingDiscardJobs[item.referenceId]
   if (existing !== undefined) {
     if (canonicalSha256(existing.item) !== canonicalSha256(item)) {
@@ -761,7 +761,7 @@ export class AnnotationStore {
       const backlinkJobs = { ...aggregate.backlinkJobs }
       delete backlinkJobs[`${input.setId}:${input.referenceId}`]
       const committedDeleteJobs = { ...aggregate.committedDeleteJobs }
-      if (item.sourceType === 'obsidian-note') {
+      if (item.sourceType === 'obsidian-note' || item.locator.upstream) {
         const key = `${input.setId}:${input.referenceId}`
         committedDeleteJobs[key] ??= {
           setId: input.setId,
@@ -936,6 +936,8 @@ export class AnnotationStore {
   }): Promise<{ revision: number; setId: string; referenceId: string; created: boolean }> {
     const found = this.findSentReference(input.sourceReferenceId)
     if (found === undefined) throw new RangeError(`Unknown sent reference ${JSON.stringify(input.sourceReferenceId)}`)
+    if (found.item.sourceType === 'dsh-message' && found.item.locator.upstream)
+      throw new Error('固定上游已可供后续轮次读取；新引用请从来源回复重新选择')
     return this.addReference(sessionId, {
       expectedRevision: input.expectedRevision,
       operationId: input.operationId,
@@ -1357,7 +1359,7 @@ export class AnnotationStore {
         sent = { ...sent, items: sent.items.filter(item => aggregate.deletedReferences[item.referenceId]?.setId !== sent?.setId) }
         if (pending?.setId === prepared.setId) pending = undefined
         for (const item of sent.items) {
-          if (item.sourceType !== 'obsidian-note') continue
+          if (item.sourceType === 'dsh-message' && !item.locator.upstream) continue
           const key = `${sent.setId}:${item.referenceId}`
           jobs[key] ??= {
             setId: sent.setId,
@@ -1400,7 +1402,7 @@ export class AnnotationStore {
     expectedRevision: number
     setId: string
     referenceId: string
-    receipt?: BacklinkReceiptV2
+    receipt?: ReferenceCommitReceipt
     error?: string
     updatedAt: number
   }): Promise<{ revision: number; job: BacklinkJob }> {

@@ -1,4 +1,5 @@
 import { Service } from '@deepseek-ai/cordis'
+import { chooseCrossSession } from './cross-session-picker.tsx'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
 import type * as React from 'react'
 
@@ -21,6 +22,7 @@ export interface ClientConfig { readonly profileId: string }
 const VERSION = '0.3.4'
 type _ClientRemoteTypeRegistration = ClientRemote
 const FEATURES: readonly AnnotationCoreFeature[] = Object.freeze([
+  'cross-session-upstream-v1',
   'dsh-message-source-v1', 'embedded-composer-v1', 'embedded-conversation-node-v1', 'answer-link-v1', 'backlink-retry-v1',
   'sent-reference-delete-v1', 'session-open-annotation-v1',
 ])
@@ -56,6 +58,39 @@ function annotationNode(input: unknown): AnnotationNodeLike | undefined {
 }
 
 export class AnnotationCoreClientService extends Service implements AnnotationCoreClient {
+  private readonly lifetime=new AbortController()
+  private readonly nativeComposers=new Map<string,number>()
+  private crossSessionTask:Promise<void>|undefined
+  registerNativeComposer(sessionId:string):()=>void{
+    this.nativeComposers.set(sessionId,(this.nativeComposers.get(sessionId)??0)+1)
+    return()=>{const count=(this.nativeComposers.get(sessionId)??1)-1;if(count)this.nativeComposers.set(sessionId,count);else this.nativeComposers.delete(sessionId)}
+  }
+  openCrossSessionReference(input:DshMessageCapture):Promise<void>{
+    if(this.crossSessionTask)return this.crossSessionTask
+    const capture=structuredClone(validateCapture(input)),operationId=id('cross-reference')
+    const sessions=this.ctx.get('sessions') as unknown as {refresh():Promise<void>;open(id:string):void;list:{getSnapshot():{current?:string}}}
+    const sources=new Map<string,DshMessageReferenceSource>()
+    const task=chooseCrossSession({
+      list:(workspaceId,after)=>this.remote(capture.sourceSessionId).upstreamDirectory({...(workspaceId===undefined?{}:{workspaceId}),...(after===undefined?{}:{after})}).then(unwrapRemote),
+      select:async target=>{
+        this.lifetime.signal.throwIfAborted()
+        if(target===capture.sourceSessionId)throw new Error('请选择另一个会话')
+        await sessions.refresh();sessions.open(target)
+        const deadline=Date.now()+15000
+        while(!this.nativeComposers.has(target)){
+          this.lifetime.signal.throwIfAborted()
+          if(Date.now()>deadline||sessions.list.getSnapshot().current!==target)throw new Error('目标输入框未就绪；选区已保留，可以重试')
+          await new Promise(resolve=>setTimeout(resolve,50))
+        }
+        let source=sources.get(target)
+        if(!source){source=unwrapRemote(await this.remote(target).captureUpstream({capture,operationId}));sources.set(target,source)}
+        if(sessions.list.getSnapshot().current!==target)throw new Error('目标页面已切换，引用尚未加入，请重试')
+        this.lifetime.signal.throwIfAborted()
+        await this.addReference(target,source,{operationId,referenceId:source.locator.upstream!.referenceId})
+      },
+    },this.lifetime.signal).finally(()=>{this.crossSessionTask=undefined})
+    this.crossSessionTask=task;return task
+  }
   readonly version = VERSION
   readonly features = FEATURES
   readonly sources = new ClientSourceRegistry()
@@ -66,6 +101,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
 
   constructor(ctx: Context, readonly config: ClientConfig) {
     super(ctx, 'annotationCore')
+    ctx.effect(()=>()=>this.lifetime.abort(),'annotation-core.crossSessionPicker')
     if (config.profileId.trim().length === 0) throw new TypeError('profileId must not be empty')
   }
 

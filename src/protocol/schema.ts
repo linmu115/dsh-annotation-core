@@ -37,6 +37,11 @@ export const DshMessageLocatorSchema = z.object({
   role: z.enum(['user', 'assistant']),
   occurrence: OccurrenceSchema,
   selectedTextHash: Sha256DigestSchema,
+  upstream: z.object({
+    kind: z.literal('fixed-upstream'), referenceId: z.string().min(1).max(256),
+    sourceTitle: z.string().max(500), sourceVersionId: z.string().min(1).max(256),
+    cutoffEventId: z.string().min(1).max(256), targetSessionId: z.string().min(1).max(256),
+  }).strict().optional(),
 }).strict()
 
 export const ObsidianNoteLocatorSchema = z.object({

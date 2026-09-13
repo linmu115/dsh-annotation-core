@@ -33,6 +33,7 @@ function NativeAnnotationRail(props: NativeRailProps) {
   const snapshot = useSyncExternalStore(handle.subscribe, handle.getSnapshot, handle.getSnapshot)
 
   useEffect(() => () => handle.dispose(), [handle])
+  useEffect(()=>props.core.registerNativeComposer(String(props.sessionId)),[props.core,props.sessionId])
   useEffect(() => {
     if (snapshot.pendingCount === 0 || snapshot.transport !== 'native-command-claim' || props.input.phase !== 'plain') return
     const claim: CommandClaim = {

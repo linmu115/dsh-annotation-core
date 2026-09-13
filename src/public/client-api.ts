@@ -9,6 +9,7 @@ import type {
 } from '../protocol/index.ts'
 
 export type AnnotationCoreFeature =
+  | 'cross-session-upstream-v1'
   | 'dsh-message-source-v1'
   | 'embedded-composer-v1'
   | 'embedded-conversation-node-v1'
@@ -58,6 +59,7 @@ export interface EmbeddedComposerHandle {
 }
 
 export interface AnnotationCoreClient {
+  openCrossSessionReference?(capture:DshMessageCapture):Promise<void>
   readonly version: string
   readonly features: readonly AnnotationCoreFeature[]
   readPendingState(sessionId: string): Promise<{ revision: number; pendingCount: number }>

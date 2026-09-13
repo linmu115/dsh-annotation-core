@@ -83,9 +83,7 @@ export class PendingDiscardOutbox {
           item: job.item,
         })
       } else {
-        const adapter = this.sources.get(job.item.sourceType)
-        if (adapter?.discardPending === undefined) return
-        await adapter.discardPending(job.item)
+        if (!await this.sources.discardPending(job.item)) return
       }
       await this.complete(sessionId, job.referenceId)
     } catch (error) {

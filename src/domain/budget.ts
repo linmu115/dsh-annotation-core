@@ -110,6 +110,8 @@ function estimator(options: ReferenceBudgetOptions): (text: string) => number {
 }
 
 function itemText(item: ReferenceItem): string {
+  if (item.sourceType === 'dsh-message' && item.locator.upstream)
+    return JSON.stringify({ referenceId:item.referenceId,selectedText:item.selectedText,userComment:item.userComment,locator:item.locator })
   return item.userComment.length === 0
     ? item.selectedText
     : `${item.selectedText}\n${item.userComment}`
@@ -121,7 +123,11 @@ export function calculateReferenceBudget(
 ): ReferenceBudgetResult {
   const window = contextWindow(options)
   const limit = Math.floor(window * REFERENCE_BUDGET_RATIO)
-  const count = estimator(options)
+  const estimate = estimator(options)
+  const hasUpstream = set.items.some(item => item.sourceType === 'dsh-message' && item.locator.upstream)
+  const count = hasUpstream
+    ? (text:string) => Math.max(estimate(text), new TextEncoder().encode(text).byteLength + 1024)
+    : estimate
   const documents = collectReferenceDocuments(set)
   const documentOwner = new Map<string, string>()
   for (const document of documents) {

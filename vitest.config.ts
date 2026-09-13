@@ -14,5 +14,5 @@ const alias = Object.entries(paths).filter(([name]) => !name.includes('*')).map(
 export default defineConfig({
   resolve: { alias },
   plugins: [standardDecoratorPlugin()],
-  test: { include: ['tests/**/*.test.ts'], execArgv: vitestExecArgv, testTimeout: 10000 },
+  test: { include: ['tests/**/*.test.{ts,tsx}'], execArgv: vitestExecArgv, testTimeout: 10000 },
 })

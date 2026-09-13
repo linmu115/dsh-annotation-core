@@ -84,6 +84,32 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }
   const settlements = new SessionSettlementTracker(ctx)
   const outbox = new BacklinkOutbox(opened.store, sources, Date.now, sessionId => deleteOutbox?.kick(sessionId))
+  ctx.inject(['maintenanceSessionContext'], connected => {
+    let active = false, disposed = false
+    const retry = async () => {
+      if (active || disposed) return
+      active = true
+      try {
+        for (const sessionId of opened.store.sessionIds()) {
+          if (disposed) break
+          for (const job of opened.store.listBacklinkJobs(sessionId)) {
+            const item = opened.store.readSentSet(sessionId, job.setId)?.items.find(item => item.referenceId === job.referenceId)
+            if (job.state === 'failed' && item?.sourceType === 'dsh-message' && item.locator.upstream)
+              await outbox.retry(sessionId, job.setId, job.referenceId).catch(() => undefined)
+          }
+          outbox.kick(sessionId)
+        }
+        discardOutbox.kickAll()
+        deleteOutbox.kickAll()
+      } finally { active = false }
+    }
+    connected.effect(() => {
+      void retry()
+      const timer = setInterval(() => { void retry() }, 30000)
+      timer.unref()
+      return () => { disposed = true; clearInterval(timer) }
+    }, 'annotation-core.upstreamOutboxRecovery')
+  })
   const submissions = new AnnotationSubmissionCoordinator(ctx, opened.store, sources, settlements, outbox)
   new AnnotationCoreRemoteService(ctx, opened.store, submissions, outbox, discardOutbox, deleteOutbox)
   registerAnnotationPreStep(ctx, opened.store)
