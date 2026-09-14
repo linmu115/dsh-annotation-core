@@ -22,6 +22,7 @@ export interface ClientConfig { readonly profileId: string }
 const VERSION = '0.3.4'
 type _ClientRemoteTypeRegistration = ClientRemote
 const FEATURES: readonly AnnotationCoreFeature[] = Object.freeze([
+  'graph-reference-actions-v1',
   'cross-session-upstream-v1',
   'dsh-message-source-v1', 'embedded-composer-v1', 'embedded-conversation-node-v1', 'answer-link-v1', 'backlink-retry-v1',
   'sent-reference-delete-v1', 'session-open-annotation-v1',
@@ -61,6 +62,10 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
   private readonly lifetime=new AbortController()
   private readonly nativeComposers=new Map<string,number>()
   private crossSessionTask:Promise<void>|undefined
+  private readonly graphReferenceTasks = new Map<string, {
+    captureKey: string
+    task: Promise<{ setId: string; referenceId: string; created: boolean }>
+  }>()
   registerNativeComposer(sessionId:string):()=>void{
     this.nativeComposers.set(sessionId,(this.nativeComposers.get(sessionId)??0)+1)
     return()=>{const count=(this.nativeComposers.get(sessionId)??1)-1;if(count)this.nativeComposers.set(sessionId,count);else this.nativeComposers.delete(sessionId)}
@@ -68,28 +73,62 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
   openCrossSessionReference(input:DshMessageCapture):Promise<void>{
     if(this.crossSessionTask)return this.crossSessionTask
     const capture=structuredClone(validateCapture(input)),operationId=id('cross-reference')
-    const sessions=this.ctx.get('sessions') as unknown as {refresh():Promise<void>;open(id:string):void;list:{getSnapshot():{current?:string}}}
-    const sources=new Map<string,DshMessageReferenceSource>()
     const task=chooseCrossSession({
       list:(workspaceId,after)=>this.remote(capture.sourceSessionId).upstreamDirectory({...(workspaceId===undefined?{}:{workspaceId}),...(after===undefined?{}:{after})}).then(unwrapRemote),
-      select:async target=>{
-        this.lifetime.signal.throwIfAborted()
-        if(target===capture.sourceSessionId)throw new Error('请选择另一个会话')
-        await sessions.refresh();sessions.open(target)
-        const deadline=Date.now()+15000
-        while(!this.nativeComposers.has(target)){
-          this.lifetime.signal.throwIfAborted()
-          if(Date.now()>deadline||sessions.list.getSnapshot().current!==target)throw new Error('目标输入框未就绪；选区已保留，可以重试')
-          await new Promise(resolve=>setTimeout(resolve,50))
-        }
-        let source=sources.get(target)
-        if(!source){source=unwrapRemote(await this.remote(target).captureUpstream({capture,operationId}));sources.set(target,source)}
-        if(sessions.list.getSnapshot().current!==target)throw new Error('目标页面已切换，引用尚未加入，请重试')
-        this.lifetime.signal.throwIfAborted()
-        await this.addReference(target,source,{operationId,referenceId:source.locator.upstream!.referenceId})
-      },
+      select:async target=>{await this.addCrossSessionReference(target,capture,{operationId})},
     },this.lifetime.signal).finally(()=>{this.crossSessionTask=undefined})
     this.crossSessionTask=task;return task
+  }
+
+  addCrossSessionReference(target: string, input: DshMessageCapture, options: { operationId?: string } = {}) {
+    const capture = structuredClone(validateCapture(input))
+    if (capture.role !== 'assistant') return Promise.reject(new Error('请选择一条已完成的 AI 回复'))
+    if (!target.trim() || target === capture.sourceSessionId) return Promise.reject(new Error('请选择另一个会话'))
+    const operationId = options.operationId ?? id('cross-reference')
+    if (!operationId.trim() || operationId.length > 256) return Promise.reject(new TypeError('Invalid reference operation ID'))
+    const key = JSON.stringify([target, operationId])
+    const captureKey = JSON.stringify([capture.sourceSessionId, capture.messageId, capture.anchorId, capture.role,
+      capture.occurrence, capture.selectedText])
+    const existing = this.graphReferenceTasks.get(key)
+    if (existing) return existing.captureKey === captureKey ? existing.task
+      : Promise.reject(new Error('同一个引用操作不能更换来源'))
+    const task = this.addCrossSessionReferenceToComposer(target, capture, operationId)
+      .finally(() => { this.graphReferenceTasks.delete(key) })
+    this.graphReferenceTasks.set(key, { captureKey, task })
+    return task
+  }
+
+  private async addCrossSessionReferenceToComposer(target: string, capture: DshMessageCapture, operationId: string) {
+    const sessions = this.ctx.get('sessions') as unknown as {
+      refresh(): Promise<void>; open(id: string): void; list: { getSnapshot(): { current?: string } }
+    }
+    this.lifetime.signal.throwIfAborted()
+    await sessions.refresh()
+    this.lifetime.signal.throwIfAborted()
+    sessions.open(target)
+    const assertTarget = () => {
+      this.lifetime.signal.throwIfAborted()
+      if (sessions.list.getSnapshot().current !== target)
+        throw new Error('目标页面已切换，引用尚未加入，请重试')
+    }
+    const deadline = Date.now() + 15000
+    while (!this.nativeComposers.has(target)) {
+      assertTarget()
+      if (Date.now() > deadline) throw new Error('目标输入框未就绪；选区已保留，可以重试')
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    assertTarget()
+    const source = unwrapRemote(await this.remote(target).captureUpstream({ capture, operationId }))
+    const beforeCommit = () => {
+      assertTarget()
+      if (!this.nativeComposers.has(target)) throw new Error('目标输入框未就绪；选区已保留，可以重试')
+    }
+    beforeCommit()
+    return this.addReference(target, source, { operationId, referenceId: source.locator.upstream!.referenceId, beforeCommit })
+  }
+
+  async resolveReferenceLink(sessionId: string, referenceId: string) {
+    return unwrapRemote(await this.remote(sessionId).resolveReferenceLink(referenceId))
   }
   readonly version = VERSION
   readonly features = FEATURES
@@ -125,12 +164,13 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     }
   }
 
-  async addReference(sessionId: string, source: ReferenceSource, options: { operationId?: string; referenceId?: string; signal?: AbortSignal } = {}) {
+  async addReference(sessionId: string, source: ReferenceSource, options: { operationId?: string; referenceId?: string; signal?: AbortSignal; beforeCommit?: () => void } = {}) {
     const remote = this.remote(sessionId); const pending = unwrapRemote(await remote.readPending()); const operationId = options.operationId ?? id('operation')
     if (options.signal?.aborted) {
       unwrapRemote(await remote.fenceReferenceOperation({ expectedRevision: pending.revision, operationId }))
       throw new DOMException('The operation was aborted', 'AbortError')
     }
+    options.beforeCommit?.()
     const result = unwrapRemote(await remote.addReference({
       expectedRevision: pending.revision, operationId, setId: pending.pending?.setId ?? id('set'),
       referenceId: options.referenceId ?? id('reference'), source, createdAt: Date.now(),

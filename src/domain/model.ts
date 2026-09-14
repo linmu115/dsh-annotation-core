@@ -11,6 +11,13 @@ export const REFERENCE_SET_SCHEMA_VERSION = 1 as const
 export type ReferenceSetState = 'pending' | 'committing' | 'sent' | 'failed'
 export type BacklinkState = 'not-required' | 'pending' | 'written' | 'failed'
 
+/** A relation locator only; no selected text, document snapshot or transcript. */
+export interface ReferenceLinkSummary {
+  readonly setId: string
+  readonly referenceId: string
+  readonly state: ReferenceSetState | 'deleted'
+}
+
 interface ReferenceItemBase {
   readonly referenceId: string
   readonly number: number

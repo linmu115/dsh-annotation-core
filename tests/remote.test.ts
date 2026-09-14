@@ -65,7 +65,7 @@ describe('annotation core Typert boundary', () => {
   it('provides explicit Host and Client artifacts with Agent-scoped descriptors', () => {
     expect(TYPERT.package).toBe('dsh-annotation-core')
     expect(TYPERT.face).toBe('host')
-    expect(TYPERT_REMOTE.descriptors).toHaveLength(17)
+    expect(TYPERT_REMOTE.descriptors).toHaveLength(19)
     for (const descriptor of TYPERT_REMOTE.descriptors) {
       expect(descriptor.scope).toMatchObject({ context: 'agent', wire: 'agentId' })
       expect(descriptor.parameters[0]).toMatchObject({ source: 'lookup', lookup: 'agent', wire: 'agentId' })
@@ -135,6 +135,25 @@ describe('annotation core Typert boundary', () => {
       name: 'RemoteError',
       code: 'gateway/cancelled',
     })
+  })
+
+  it('resolves and deletes a graph relation through the registered Agent-scoped gateway', async () => {
+    const ctx = new Context(), store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
+    const gateway = mountAgentBoundary(ctx, store)
+    await store.addReference('session-1', { expectedRevision: 0, operationId: 'graph', setId: 'set', referenceId: 'ref', createdAt: 1,
+      source: { sourceType: 'dsh-message', selectedText: 'private fixture text', locator: { profileId: 'web', sessionId: 'source',
+        anchorId: 'reply', role: 'assistant', occurrence: 0, selectedTextHash: selectedTextHash('private fixture text') } } })
+    const invoke = (method: string, args: Record<string, unknown>) => gateway.invoke({ namespace: 'annotationCore', method,
+      args: { agentId: 'session-1', ...args }, signal: new AbortController().signal })
+    expect(await invoke('resolveReferenceLink', { referenceId: 'ref' })).toEqual({ setId: 'set', referenceId: 'ref', state: 'pending' })
+    expect(await invoke('deleteReferenceLink', { request: { expectedRevision: 1, setId: 'set', referenceId: 'ref', deletedAt: 2 } }))
+      .toMatchObject({ deleted: true, scope: 'pending' })
+    expect(await invoke('resolveReferenceLink', { referenceId: 'ref' })).toEqual({ setId: 'set', referenceId: 'ref', state: 'deleted' })
+    expect(await invoke('deleteReferenceLink', { request: { expectedRevision: 1, setId: 'set', referenceId: 'ref', deletedAt: 2 } }))
+      .toMatchObject({ deleted: false, scope: 'pending' })
+    await expect(invoke('resolveReferenceLink', { referenceId: 'ref', agentId: 'foreign' })).rejects.toThrow()
+    await expect(invoke('resolveReferenceLink', { referenceId: 'x'.repeat(257) })).rejects.toThrow()
+    store.close()
   })
 
   it('mounts the Client descriptor explicitly and unwraps a real RemoteResult round trip', async () => {

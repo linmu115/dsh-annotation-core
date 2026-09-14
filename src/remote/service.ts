@@ -93,6 +93,10 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
     return { revision: state.revision, pending: state.pending ?? null }
   }
 
+  resolveReferenceLink(agent: Agent, referenceId: string) {
+    return this.store.resolveReferenceLink(agent.id, referenceId)
+  }
+
   upstreamDirectory(_agent:Agent,request:{workspaceId?:string;after?:string}){
     return upstreamHost(this.ctx).directory(request.workspaceId,request.after)
   }

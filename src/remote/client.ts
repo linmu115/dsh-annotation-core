@@ -4,7 +4,7 @@ import type { RemoteFailure, RemoteResult } from '@deepseek-ai/dsh-typert-protoc
 
 import type { AdmissionRecord } from '../host/store.ts'
 import type { SubmissionResult } from '../host/submit-annotated.ts'
-import type { ReferenceSet } from '../domain/model.ts'
+import type { ReferenceLinkSummary, ReferenceSet } from '../domain/model.ts'
 import type {
   AddReferenceRequest,
   DiscardPendingOperationRequest,
@@ -23,6 +23,7 @@ export interface AnnotationCoreRemoteNamespace {
   upstreamDirectory(request:{workspaceId?:string;after?:string}):Promise<RemoteResult<{items:{id:string;title:string}[];nextCursor:string|null}>>
   captureUpstream(request:{capture:DshMessageCapture;operationId:string}):Promise<RemoteResult<DshMessageReferenceSource>>
   readPending(): Promise<RemoteResult<{ revision: number; pending: ReferenceSet | null }>>
+  resolveReferenceLink(referenceId: string): Promise<RemoteResult<ReferenceLinkSummary | null>>
   addReference(request: AddReferenceRequest): Promise<RemoteResult<{
     revision: number
     setId: string

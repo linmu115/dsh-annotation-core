@@ -43,6 +43,9 @@ const UpdateCommentRequestSchema = z.object({
   comment: z.string(),
 }).strict()
 const RemoveReferenceRequestSchema = z.object({ ...MutationBase, referenceId: z.string().min(1) }).strict()
+const DeleteReferenceLinkRequestSchema = z.object({
+  ...MutationBase, setId: z.string().min(1), referenceId: z.string().min(1).max(256), deletedAt: RevisionSchema,
+}).strict()
 const ReuseReferenceRequestSchema = z.object({
   ...MutationBase,
   sourceReferenceId: z.string().min(1),
@@ -110,11 +113,17 @@ export const ANNOTATION_CORE_REMOTE_DESCRIPTORS: readonly InvocationDescriptor[]
   descriptor('upstreamDirectory',[jsonParameter('request',z.object({workspaceId:z.string().max(256).optional(),after:z.string().max(256).optional()}).strict())],unknownCodec('dsh-annotation-core#UpstreamDirectory')),
   descriptor('captureUpstream',[jsonParameter('request',z.object({capture:DshMessageCaptureSchema,operationId:z.string().min(1).max(256)}).strict())],unknownCodec('dsh-annotation-core#UpstreamSource')),
   descriptor('readPending', [], unknownCodec('dsh-annotation-core#ReadPendingResult')),
+  descriptor('resolveReferenceLink', [jsonParameter('referenceId', z.string().min(1).max(256), 'string')],
+    { mode: 'strict', typeSymbol: 'dsh-annotation-core#ReferenceLinkSummary', schema: z.object({
+      setId: z.string().min(1), referenceId: z.string().min(1).max(256),
+      state: z.enum(['pending', 'committing', 'failed', 'sent', 'deleted']),
+    }).strict().nullable() }),
   descriptor('addReference', [jsonParameter('request', AddReferenceRequestSchema)], unknownCodec('dsh-annotation-core#AddReferenceResult')),
   descriptor('fenceReferenceOperation', [jsonParameter('request', FenceRequestSchema)], unknownCodec('dsh-annotation-core#FenceResult')),
   descriptor('discardPendingOperation', [jsonParameter('request', FenceRequestSchema.extend({ notifySource: z.boolean().optional() }))], voidCodec('void')),
   descriptor('updateComment', [jsonParameter('request', UpdateCommentRequestSchema)], voidCodec('void')),
   descriptor('removeReference', [jsonParameter('request', RemoveReferenceRequestSchema)], voidCodec('void')),
+  descriptor('deleteReferenceLink', [jsonParameter('request', DeleteReferenceLinkRequestSchema)], unknownCodec('dsh-annotation-core#DeleteReferenceLinkResult')),
   descriptor('reuseReference', [jsonParameter('request', ReuseReferenceRequestSchema)], unknownCodec('dsh-annotation-core#ReuseReferenceResult')),
   descriptor('readSentSet', [jsonParameter('setId', z.string().min(1), 'string')], unknownCodec('dsh-annotation-core#ReadSentSetResult')),
   descriptor('listSentForSession', [], unknownCodec('dsh-annotation-core#ListSentResult')),

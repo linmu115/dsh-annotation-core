@@ -16,6 +16,19 @@ async function fixture() {
 }
 
 describe('narrow store reads', () => {
+  it('resolves only relation metadata within the requested session, including deleted links', async () => {
+    const { store, aggregate } = await fixture()
+    const item = aggregate.pending!.items[0]!
+    Object.defineProperty(item, 'selectedText', { enumerable: true, get() { throw new Error('reference text copied') } })
+    expect(store.resolveReferenceLink('session', 'ref')).toEqual({ setId: 'set', referenceId: 'ref', state: 'pending' })
+    expect(store.resolveReferenceLink('other', 'ref')).toBeNull()
+    Object.assign(aggregate, { pending: undefined, sentSets: [{ ...aggregate.pending!, setId: 'sent-set', state: 'sent', items: [item] }] })
+    expect(store.resolveReferenceLink('session', 'ref')).toEqual({ setId: 'sent-set', referenceId: 'ref', state: 'sent' })
+    Object.assign(aggregate.deletedReferences, { ref: { setId: 'sent-set', referenceId: 'ref', scope: 'sent', sourceType: 'dsh-message', deletedAt: 4 } })
+    expect(store.resolveReferenceLink('session', 'ref')).toEqual({ setId: 'sent-set', referenceId: 'ref', state: 'deleted' })
+    expect(store.resolveReferenceLink('session', 'missing')).toBeNull()
+    store.close()
+  })
   it.each([0, 100, 1000])('does not visit unrelated history for pending reads with %i historical entries', async (count) => {
     const { store, aggregate } = await fixture()
     const historical = Array.from({ length: count }, () => ({ ...aggregate.pending!, state: 'sent' as const }))

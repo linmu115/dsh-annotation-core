@@ -15,7 +15,7 @@ import {
   restoreFailedReferenceCommit,
   updateReferenceComment,
 } from '../domain/state-machine.ts'
-import type { ReferenceItem, ReferenceSet } from '../domain/model.ts'
+import type { ReferenceItem, ReferenceLinkSummary, ReferenceSet } from '../domain/model.ts'
 import { PreparedUpstreamContextSchema } from '../domain/upstream-context.ts'
 import {
   canonicalSha256,
@@ -800,6 +800,20 @@ export class AnnotationStore {
 
   readDeletedReference(sessionId: string, referenceId: string): DeletedReferenceRecord | undefined {
     return clone(this.readStored(sessionId).deletedReferences[referenceId])
+  }
+
+  resolveReferenceLink(sessionId: string, referenceId: string): ReferenceLinkSummary | null {
+    if (!referenceId.trim() || referenceId.length > 256) throw new TypeError('Invalid reference ID')
+    const aggregate = this.readStored(sessionId)
+    const deleted = aggregate.deletedReferences[referenceId]
+    if (deleted) return { setId: deleted.setId, referenceId, state: 'deleted' }
+    const pending = aggregate.pending
+    if (pending?.items.some(item => item.referenceId === referenceId))
+      return { setId: pending.setId, referenceId, state: pending.state }
+    for (const set of aggregate.sentSets) {
+      if (set.items.some(item => item.referenceId === referenceId)) return { setId: set.setId, referenceId, state: set.state }
+    }
+    return null
   }
 
   listPendingDiscardJobs(sessionId: string): readonly PendingDiscardJob[] {

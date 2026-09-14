@@ -1,6 +1,7 @@
 import type * as React from 'react'
 
-import type { ReferenceItem } from '../domain/model.ts'
+import type { ReferenceItem, ReferenceLinkSummary } from '../domain/model.ts'
+export type { ReferenceLinkSummary } from '../domain/model.ts'
 import type {
   DshMessageCapture,
   DshMessageReferenceSource,
@@ -9,6 +10,7 @@ import type {
 } from '../protocol/index.ts'
 
 export type AnnotationCoreFeature =
+  | 'graph-reference-actions-v1'
   | 'cross-session-upstream-v1'
   | 'dsh-message-source-v1'
   | 'embedded-composer-v1'
@@ -60,6 +62,14 @@ export interface EmbeddedComposerHandle {
 
 export interface AnnotationCoreClient {
   openCrossSessionReference?(capture:DshMessageCapture):Promise<void>
+  /** Opens a real target conversation and adds a pending reference; never submits it. */
+  addCrossSessionReference(
+    targetSessionId: string,
+    capture: DshMessageCapture,
+    options?: { operationId?: string },
+  ): Promise<{ setId: string; referenceId: string; created: boolean }>
+  /** Session-scoped metadata lookup for graph edges, including deletion tombstones. */
+  resolveReferenceLink(sessionId: string, referenceId: string): Promise<ReferenceLinkSummary | null>
   readonly version: string
   readonly features: readonly AnnotationCoreFeature[]
   readPendingState(sessionId: string): Promise<{ revision: number; pendingCount: number }>
