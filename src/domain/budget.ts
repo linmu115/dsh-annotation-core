@@ -35,6 +35,8 @@ export interface SourceBudgetDetail {
 export interface ReferenceBudgetOptions {
   readonly contextWindow?: number
   readonly countTokens?: (text: string) => number
+  readonly maxTokens?: number
+  readonly includeEnvelope?: boolean
 }
 
 export interface ReferenceBudgetResult {
@@ -124,7 +126,9 @@ export function calculateReferenceBudget(
   options: ReferenceBudgetOptions = {},
 ): ReferenceBudgetResult {
   const window = contextWindow(options)
-  const limit = Math.floor(window * REFERENCE_BUDGET_RATIO)
+  if (options.maxTokens !== undefined && (!Number.isSafeInteger(options.maxTokens) || options.maxTokens < 0))
+    throw new RangeError('Reference allowance must be a non-negative safe integer')
+  const limit = Math.min(Math.floor(window * REFERENCE_BUDGET_RATIO), options.maxTokens ?? Infinity)
   const estimate = estimator(options)
   const hasUpstream = set.items.some(item => item.sourceType === 'dsh-message' && item.locator.upstream)
   const count = hasUpstream
@@ -153,7 +157,7 @@ export function calculateReferenceBudget(
     ...documents.map((document) => document.markdown),
   ].join('\n')
   const perItemTokens = perItem.map(({ text }) => count(text))
-  const estimatedTokens = hasUpstream
+  const estimatedTokens = hasUpstream || options.includeEnvelope
     ? Math.max(count(allMaterial),count(serializePreparedReferenceSet(set,documents).text))
     : count(allMaterial)
   const overBy = Math.max(0, estimatedTokens - limit)

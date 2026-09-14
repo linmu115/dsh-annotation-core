@@ -14,6 +14,7 @@ import {
   submissionRequestDigest,
 } from '../protocol/index.ts'
 import { prepareSubmission } from './admit-images.ts'
+import { submissionReferenceBudget } from './submission-budget.ts'
 import type { SubmitImageAttachment } from './admit-images.ts'
 import type { BacklinkOutbox } from './backlink-outbox.ts'
 import { prepareReferenceSet } from './prepare-reference-set.ts'
@@ -141,13 +142,31 @@ export class AnnotationSubmissionCoordinator {
     if (pending.pending?.setId !== input.setId || pending.pending.revision !== input.referenceRevision) {
       throw new AggregateRevisionConflictError(input.referenceRevision, pending.pending?.revision ?? -1)
     }
+    let preparedSubmission
+    try {
+      preparedSubmission = await prepareSubmission({ agent, requestId: input.clientSubmissionId,
+        fileUploads: this.ctx.get('fileUploads'), attachments: this.ctx.attachments, text: input.text,
+        ...(input.attachments === undefined ? {} : { ordered: input.attachments }),
+        ...(input.images === undefined ? {} : { images: input.images }) })
+    } catch (error) {
+      return { kind: 'error', code: 'image-admission', message: errorText(error) }
+    }
+    const { message } = preparedSubmission
+    using receiptBinding = preparedSubmission.binding
     const defaults = this.ctx.get('agentDefaultModel' as never) as { currentSelection(): { provider: string; model: string } } | undefined
-    const selection = selectedModel(agent) ?? defaults?.currentSelection()
-    const model = selection === undefined ? undefined : await this.ctx.get('llm')?.resolveModelInfo(selection.provider, selection.model, signal)
-    const contextWindow = model?.context?.contextWindow
+    const selection = selectedModel(agent) ?? (agent.options.provider && agent.options.model
+      ? { provider: agent.options.provider, model: agent.options.model } : defaults?.currentSelection())
+    let budget
+    try {
+      const model = selection === undefined ? undefined : await this.ctx.get('llm')?.resolveModelInfo(selection.provider, selection.model, signal)
+      budget = await submissionReferenceBudget(this.ctx, agent, message, selection, model, signal)
+    } catch (error) {
+      signal?.throwIfAborted()
+      return { kind: 'error', code: 'source-blocked', message: errorText(error) }
+    }
     const prepared = await prepareReferenceSet(pending.pending, this.sources, {
-      upstreamExecutionId: `initial:${selectedTextHash(input.clientSubmissionId)}`,
-      budget: contextWindow === undefined ? {} : { contextWindow },
+      upstreamExecutionId: `initial:${selectedTextHash(input.clientSubmissionId)}:${crypto.randomUUID()}`,
+      budget,
       useSavedSnapshotFor: new Set(input.useSavedSnapshotFor ?? []),
       ...(signal === undefined ? {} : { signal }),
     })
@@ -164,24 +183,6 @@ export class AnnotationSubmissionCoordinator {
     if (!begun.created) return { result: this.resumeKnown(agent, begun.record, signal) }
     const preparedSet = beginReferenceCommit(prepared.set, prepared.set.revision)
 
-    let preparedSubmission
-    try {
-      preparedSubmission = await prepareSubmission({
-        agent,
-        requestId: input.clientSubmissionId,
-        fileUploads: this.ctx.get('fileUploads'),
-        ...(input.attachments === undefined ? {} : { ordered: input.attachments }),
-        attachments: this.ctx.attachments,
-        text: input.text,
-        ...(input.images === undefined ? {} : { images: input.images }),
-      })
-    } catch (error) {
-      await this.failTerminal(agent.id, input.clientSubmissionId, error)
-      return { kind: 'error', code: 'image-admission', message: errorText(error) }
-    }
-
-    const { message } = preparedSubmission
-    using receiptBinding = preparedSubmission.binding
     const serialized = serializePreparedReferenceSet(preparedSet, prepared.documents)
     const contextMessageId = annotationContextMessageId({
       sessionId: agent.id,

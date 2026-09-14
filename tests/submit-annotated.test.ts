@@ -11,6 +11,7 @@ import type {
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import { SessionId, SessionStore } from '@deepseek-ai/dsh-session'
+import { fileHandleText } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it, vi } from 'vitest'
 
 import { BacklinkOutbox } from '../src/host/backlink-outbox.ts'
@@ -69,6 +70,11 @@ function fixture(options: { mode?: DeliveryMode; flush?: 'success' | 'fail' | 'd
   const acceptance = installAcceptanceFixture(ctx)
   new SessionStore(ctx)
   new TestAttachments(ctx)
+  ctx.provide('agentDefaultModel' as never, { currentSelection: () => ({ provider: 'test', model: 'model' }) })
+  ctx.provide('llm', { resolveModelInfo: async () => ({ context: { contextWindow: 65536 }, defaultMaxTokens: 8192 }),
+    imageRequestPricing: () => ({ priceImages: (images: readonly unknown[]) => images.map(() => ({ visualTokens: 1024, text: '' })) }),
+    fileRequestText: (ref: Parameters<typeof fileHandleText>[0]) => fileHandleText(ref, undefined) } as never)
+  ctx.provide('systemPrompt', { assemble: async () => ({ sections: [], contexts: [], tools: [], variables: {} }) } as never)
   const session = ctx.sessions.create(SessionId(`session-${crypto.randomUUID()}`))
   const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
   const sources = acceptance.sources
@@ -262,6 +268,25 @@ describe('Host annotated submission transaction', () => {
     const result = await f.coordinator.submitAnnotated(f.agent, annotatedRequest(f.store, f.session.id))
     expect(resolveModelInfo).toHaveBeenCalledWith('native','large',undefined)
     expect(result.kind).toBe('success')
+  })
+  it.each([52800, 80000])('retains receipts and draft when %i bytes of current input leave insufficient space for the full reference envelope', async inputBytes => {
+    const f = fixture()
+    const commit = vi.fn(), dispose = vi.fn()
+    f.ctx.provide('fileUploads', { resolve: () => ({ attachmentId: 'file-sha', name: 'note.txt', bytes: 4 }),
+      bindPrompt: () => ({ commit, [Symbol.dispose]: dispose }) } as never)
+    await addReference(f.store, f.session.id)
+    const request = annotatedRequest(f.store, f.session.id)
+    const { images: _images, ...base } = request
+    const text = 'x'.repeat(inputBytes)
+    const attachments = [{ type: 'file' as const, receiptId: 'receipt-1' }]
+    const result = await f.coordinator.submitAnnotated(f.agent, { ...base, text, attachments,
+      requestDigest: submissionRequestDigest({ text, attachments }) })
+    expect(result).toMatchObject({ kind: 'error', code: 'source-blocked' })
+    expect(commit).not.toHaveBeenCalled()
+    expect(dispose).toHaveBeenCalledOnce()
+    expect(f.store.readAdmission(f.session.id, request.clientSubmissionId)).toBeUndefined()
+    expect(f.store.readPending(f.session.id).pending?.state).toBe('pending')
+    expect(f.sends).toHaveLength(0)
   })
   it('retains the reference draft when executor input admission rejects the complete proposed input', async () => {
     const f = fixture()

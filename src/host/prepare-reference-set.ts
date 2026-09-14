@@ -217,30 +217,36 @@ export async function prepareReferenceSet(
   let remainingReferences = preparedItems.filter(item => item.sourceType === 'dsh-message' && item.locator.upstream).length
   const totalBytes = Math.min(64000, Math.max(0, budget.limit - budget.estimatedTokens - 256))
   const executionId = options.upstreamExecutionId ?? `initial:${canonicalSha256([set.sessionId,set.setId,set.revision])}`
-  for (const [index, item] of preparedItems.entries()) {
-    if (item.sourceType !== 'dsh-message' || !item.locator.upstream) continue
-    const bytes = Math.min(16000, Math.floor((budget.limit - budget.estimatedTokens - 256) / remainingReferences) - 128)
-    if (bytes < 1024 || totalBytes < 1024) return {kind:'blocked',reason:'over-budget',details:budget.details}
-    try {
-      const initialContext = await registry.prepareUpstreamContext(item,executionId,bytes,totalBytes,signal)
-      preparedItems[index] = {...item,initialContext}
-    } catch (error) {
-      signal.throwIfAborted()
-      return {kind:'blocked',reason:'source-missing',details:[blockedDetail(item,'source-missing',
-        error instanceof Error ? error.message : String(error),budget.estimatedTokens,budget.limit)]}
+  let started = false
+  try {
+    for (const [index, item] of preparedItems.entries()) {
+      if (item.sourceType !== 'dsh-message' || !item.locator.upstream) continue
+      const bytes = Math.min(16000, Math.floor((budget.limit - budget.estimatedTokens - 256) / remainingReferences) - 128)
+      if (bytes < 1024 || totalBytes < 1024) return {kind:'blocked',reason:'over-budget',details:budget.details}
+      try {
+        started = true
+        const initialContext = await registry.prepareUpstreamContext(item,executionId,bytes,totalBytes,signal)
+        preparedItems[index] = {...item,initialContext}
+      } catch (error) {
+        signal.throwIfAborted()
+        return {kind:'blocked',reason:'source-missing',details:[blockedDetail(item,'source-missing',
+          error instanceof Error ? error.message : String(error),budget.estimatedTokens,budget.limit)]}
+      }
+      remainingReferences--
+      prepared = Object.freeze({...prepared,items:Object.freeze([...preparedItems])})
+      budget = calculateReferenceBudget(prepared,options.budget)
     }
-    remainingReferences--
-    prepared = Object.freeze({...prepared,items:Object.freeze([...preparedItems])})
-    budget = calculateReferenceBudget(prepared,options.budget)
-  }
-  if (budget.overBudget) {
-    return { kind: 'blocked', reason: 'over-budget', details: budget.details }
-  }
-  return {
-    kind: 'ready',
-    set: prepared,
-    estimatedTokens: budget.estimatedTokens,
-    limit: budget.limit,
-    documents: budget.documents,
+    if (budget.overBudget) {
+      return { kind: 'blocked', reason: 'over-budget', details: budget.details }
+    }
+    return {
+      kind: 'ready',
+      set: prepared,
+      estimatedTokens: budget.estimatedTokens,
+      limit: budget.limit,
+      documents: budget.documents,
+    }
+  } finally {
+    if (started) await registry.endUpstreamExecution(set.sessionId, executionId)
   }
 }

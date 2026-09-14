@@ -72,6 +72,15 @@ export function registerReferenceTools(ctx: Context, store: AnnotationStore, sou
     } | undefined
     return runtime?.apiVersion === 1 ? runtime.contextUsageFor?.(sessionId) : undefined
   }, agent => currentInitialUpstreamBytes(store,agent))
+  const endExecution = async (sessionId: string) => {
+    const executionId = upstreamBudgets.end(sessionId)
+    if (executionId !== undefined) await sources.endUpstreamExecution(sessionId, executionId)
+  }
+  ctx.on('session/event', async (session, event) => {
+    if (event.type === 'turn/start' || event.type === 'turn/end') await endExecution(session.id)
+  })
+  ctx.on('session/disposed', session => endExecution(session.id))
+  ctx.on('agent/disposed', ({ agent }) => endExecution(agent.session.id))
   registerUpstreamTools(ctx, store, upstreamBudgets)
   ctx.inject(['tools'], toolCtx => {
     const list = defineTool({

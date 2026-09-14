@@ -1,6 +1,6 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
-interface Allowance { used: number; limit: number }
+interface Allowance { used: number; limit: number; executionId: string }
 export interface NativeUpstreamUsage {
   readonly executionId: string
   readonly modelContextWindow: number
@@ -33,10 +33,10 @@ export class UpstreamToolBudgets {
     private readonly initialBytesFor?: (agent: Agent) => number) {}
 
   reserve(agent: Agent, requested = 8000) {
-    const turn = agent.session.snapshotEvents().findLast(event => event.type === 'turn/start')
-    if (!turn) throw new Error('当前会话没有正在执行的用户轮次')
+    const turn = agent.session.snapshotEvents().findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
+    if (!turn || turn.type !== 'turn/start') throw new Error('当前会话没有正在执行的用户轮次')
     const executionId = `turn:${turn.seq}:${turn.time}`
-    const key = JSON.stringify([agent.session.id, executionId])
+    const key = agent.session.id
     const header = agent.session.requestHeader()
     const context = agent.session.requestContext()
     let headroom: number
@@ -53,11 +53,10 @@ export class UpstreamToolBudgets {
     // not freeze an unknown allowance at zero for the rest of this user turn.
     if (headroom < 1024) throw new Error('本轮可用上下文额度不足或尚未确认，请依据已读取材料回答或稍后重试')
     let state = this.turns.get(key)
-    if (!state) {
-      if (this.turns.size >= 10000) throw new Error('引用读取轮次数达到上限')
+    if (!state || state.executionId !== executionId) {
       const initialBytes = this.initialBytesFor?.(agent) ?? 0
       if (!Number.isSafeInteger(initialBytes) || initialBytes < 0) throw new Error('首轮引用上下文额度不可确认')
-      state = { used: initialBytes, limit: headroom }
+      state = { used: initialBytes, limit: headroom, executionId }
       this.turns.set(key, state)
     }
     state.limit = Math.min(state.limit, state.used + headroom)
@@ -75,5 +74,11 @@ export class UpstreamToolBudgets {
         state!.used -= bytes - used
       },
     }
+  }
+
+  end(sessionId: string): string | undefined {
+    const state = this.turns.get(sessionId)
+    this.turns.delete(sessionId)
+    return state?.executionId
   }
 }

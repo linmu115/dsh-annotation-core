@@ -165,6 +165,45 @@ describe('shared annotation composer binding', () => {
     binding.dispose()
   })
 
+  it.each(['text', 'attachments'] as const)('submits changed %s after an uncertain earlier admission becomes durable', async (changed) => {
+    const fake = remote(set(1))
+    const store = new ReferenceSessionStore(fake.value)
+    await store.ready()
+    const binding = createComposerBinding({ sessionId: 'session-1', layout: 'default', remote: fake.value, store })
+    const oldFiles = [{ type: 'file' as const, receiptId: 'old-file' }]
+    const newFiles = changed === 'attachments' ? [{ type: 'file' as const, receiptId: 'new-file' }] : oldFiles
+    const newText = changed === 'text' ? 'edited question' : 'question'
+    try {
+      fake.calls.annotated.mockRejectedValueOnce(new Error('response lost'))
+      await expect(binding.submitClaim('question', oldFiles)).resolves.toMatchObject({ kind: 'error' })
+      const oldRequest = fake.calls.annotated.mock.calls[0]![0]
+      fake.calls.admission.mockResolvedValueOnce({ ok: true, value: { state: 'durable', userMessageId: 'old-user' } })
+      // The stream is stale. Only a fresh read reveals the prior reference was sent.
+      fake.value.readPending = () => ok({ revision: 3, pending: null })
+      fake.calls.plain.mockResolvedValueOnce({ ok: true, value: { kind: 'error', code: 'delivery', message: 'new input refused' } })
+      await expect(binding.submitClaim(newText, newFiles)).resolves.toEqual({ kind: 'error', text: 'new input refused' })
+      expect(fake.calls.annotated).toHaveBeenCalledTimes(1)
+      expect(fake.calls.plain).toHaveBeenCalledTimes(1)
+      expect(fake.calls.plain.mock.calls[0]![0]).toMatchObject({ expectedRevision: 3, text: newText, attachments: newFiles })
+      expect(fake.calls.plain.mock.calls[0]![0].clientSubmissionId).not.toBe(oldRequest.clientSubmissionId)
+    } finally { binding.dispose(); store.dispose() }
+  })
+
+  it('retains a changed draft while the earlier admission is still unresolved', async () => {
+    const fake = remote(set(1))
+    const store = new ReferenceSessionStore(fake.value)
+    await store.ready()
+    const binding = createComposerBinding({ sessionId: 'session-1', layout: 'default', remote: fake.value, store })
+    try {
+      fake.calls.annotated.mockRejectedValueOnce(new Error('response lost'))
+      await binding.submitClaim('old', [])
+      fake.calls.admission.mockResolvedValueOnce({ ok: true, value: { state: 'enqueued' } })
+      expect(await binding.submitClaim('new', [{ type: 'file', receiptId: 'new-file' }])).toMatchObject({ kind: 'error' })
+      expect(fake.calls.annotated).toHaveBeenCalledTimes(1)
+      expect(fake.calls.plain).not.toHaveBeenCalled()
+    } finally { binding.dispose(); store.dispose() }
+  })
+
   it('never overwrites a newer sidechat draft when a plain send settles', async () => {
     let snapshot = { draft: 'old', revision: 1 }
     let settle!: (value: { kind: 'success'; submittedRevision: number }) => void

@@ -235,7 +235,7 @@ export class ComposerBinding implements EmbeddedComposerHandle {
     if (state.pending !== null && state.pending.items.length > 0) {
       const capturedRevision = this.localRevision
       const capturedPlain = this.options.plainPort?.getSnapshot()
-      const outcome = await this.submitCore(this.visibleDraft, [], state)
+      const outcome = await this.submitCore(this.visibleDraft, [])
       if (outcome.kind === 'error') throw this.fail(outcome.text ?? '注释发送失败')
       if (
         capturedPlain !== undefined &&
@@ -269,13 +269,12 @@ export class ComposerBinding implements EmbeddedComposerHandle {
   async submitClaim(text: string, images: readonly (SubmissionAttachment | EncodedImageAttachment)[]): Promise<SubmitOutcome> {
     const state = this.store.getSnapshot()
     if (state.status !== 'ready') return { kind: 'error', text: state.error ?? '注释内核状态未知，已阻止发送' }
-    return this.submitCore(text, images, state)
+    return this.submitCore(text, images)
   }
 
   private async submitCore(
     text: string,
     images: readonly (SubmissionAttachment | EncodedImageAttachment)[],
-    state: ReferenceSessionSnapshot,
   ): Promise<SubmitOutcome> {
     if (text.trim().length === 0) return { kind: 'error', text: images.length === 0 ? '请输入正文' : '先输入正文' }
     const fields = submissionAttachmentFields(images)
@@ -290,6 +289,10 @@ export class ComposerBinding implements EmbeddedComposerHandle {
       }
       return identity.settled
     }
+    // Resolving an earlier uncertain admission may have consumed its references.
+    // Submit the current input against the refreshed pending set, never its predecessor.
+    const state = this.store.getSnapshot()
+    if (state.status !== 'ready') return { kind: 'error', text: state.error ?? '注释内核状态未知，已保留本次输入' }
     this.beginCommit()
     try {
       const pending = state.pending
@@ -341,8 +344,9 @@ export class ComposerBinding implements EmbeddedComposerHandle {
       return { clientSubmissionId: randomId('submission'), requestDigest }
     }
     if (prior.state === 'durable') {
+      await this.store.refresh()
       this.uncertain = undefined
-      return { settled: { kind: 'success' } }
+      return { clientSubmissionId: randomId('submission'), requestDigest }
     }
     return { settled: { kind: 'error', text: '上一次发送结果仍未确定，请稍后重试' } }
   }

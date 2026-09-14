@@ -15,6 +15,7 @@ export interface UpstreamHost {
   inspect(targetNativeSessionId:string,referenceId:string): Promise<{selectedText:string;sourceVersionId:string;cutoffEventId:string}>
   bind(targetNativeSessionId:string,referenceId:string,targetMessageId:string|null): Promise<unknown>
   read(input:{targetNativeSessionId:string;referenceId:string;executionId:string;cursor?:string;query?:string;view?:'selected-turn';maxBytes:number;totalBytes:number}):Promise<unknown>
+  endExecution?(targetNativeSessionId:string,executionId:string):Promise<unknown>
 }
 export function upstreamHost(ctx:Context):UpstreamHost {
   const bridge=ctx.get('maintenanceSessionContext' as never) as UpstreamHost|undefined

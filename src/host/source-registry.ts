@@ -100,6 +100,11 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
     return context
   }
 
+  async endUpstreamExecution(targetSessionId: string, executionId: string): Promise<void> {
+    const host = upstreamHost(this.ctx)
+    if (typeof host.endExecution === 'function') await host.endExecution(targetSessionId, executionId)
+  }
+
   async discardPending(item: ReferenceItem): Promise<boolean> {
     const upstream = upstreamOf(item)
     if (upstream) {

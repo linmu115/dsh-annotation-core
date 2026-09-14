@@ -9,7 +9,7 @@ import { CommittedDeleteOutbox } from '../src/host/committed-delete-outbox.ts'
 import { selectedTextHash, type ReferenceSource } from '../src/protocol/index.ts'
 import { UpstreamToolBudgets, upstreamHeadroom, type NativeUpstreamUsage } from '../src/host/upstream-budget.ts'
 import { registerUpstreamTools } from '../src/host/upstream-tools.ts'
-import { availableReferenceSets } from '../src/host/reference-tools.ts'
+import { availableReferenceSets, registerReferenceTools } from '../src/host/reference-tools.ts'
 import { prepareReferenceSet } from '../src/host/prepare-reference-set.ts'
 import { createAnnotationContextMessage } from '../src/host/commit-journal.ts'
 import { ReferenceSetSchema } from '../src/host/store.ts'
@@ -33,7 +33,7 @@ async function fixture(sent=true){
     await store.finalizeDurableSubmission('target',{expectedRevision:3,clientSubmissionId:'submission',userMessageId:'user',userObserved:true,contextObserved:true,committedAt:4})
   }
   const ctx=new Context()
-  const bridge={protocolVersion:1,bind:vi.fn(async()=>({})),inspect:vi.fn(async()=>({selectedText:'selected',sourceVersionId:'v1',cutoffEventId:'completed-answer'})),
+  const bridge={protocolVersion:1,endExecution:vi.fn(async()=>({})),bind:vi.fn(async()=>({})),inspect:vi.fn(async()=>({selectedText:'selected',sourceVersionId:'v1',cutoffEventId:'completed-answer'})),
     read:vi.fn(async()=>({referenceId:'reference',sourceVersionId:'v1',cutoffEventId:'completed-answer',
       items:[{eventId:'question',role:'user',text:'Why use gradient checkpointing?',offset:0,complete:true},
         {eventId:'completed-answer',role:'assistant',text:'bounded upstream: recomputation trades time for GPU memory. Full selected answer.',offset:0,complete:true}],
@@ -46,6 +46,39 @@ async function fixture(sent=true){
   return {ctx,store,bridge,registry,agent,events}
 }
 describe('fixed upstream annotation lifecycle and model access',()=>{
+  it('ends initial read executions on success and source failure', async()=>{
+    const f=await fixture(false)
+    const set=f.store.readPending('target').pending!
+    expect((await prepareReferenceSet(set,f.registry,{upstreamExecutionId:'initial:first'})).kind).toBe('ready')
+    expect(f.bridge.endExecution).toHaveBeenLastCalledWith('target','initial:first')
+    f.bridge.read.mockRejectedValueOnce(new Error('source disappeared'))
+    expect((await prepareReferenceSet(set,f.registry,{upstreamExecutionId:'initial:second'})).kind).toBe('blocked')
+    expect(f.bridge.endExecution).toHaveBeenLastCalledWith('target','initial:second')
+  })
+  it('does not exhaust a process-lifetime turn limit and refuses reads after turn end',async()=>{
+    const f=await fixture(),budget=new UpstreamToolBudgets()
+    for(let turn=0;turn<10001;turn++){
+      f.events.splice(0,f.events.length,{type:'turn/start',seq:turn,time:turn})
+      const allowance=budget.reserve(f.agent)
+      allowance.settle('bounded output')
+      expect(budget.end('target')).toBe(allowance.executionId)
+    }
+    f.events.push({type:'turn/end',seq:10002,time:10002})
+    expect(()=>budget.reserve(f.agent)).toThrow('没有正在执行')
+    expect(budget.end('target')).toBeUndefined()
+  })
+  it.each(['turn/end','turn/start','session/disposed','agent/disposed'] as const)('closes the host budget on %s',async event=>{
+    const f=await fixture(),registered:any[]=[]
+    f.ctx.provide('tools',{register:(tool:any)=>{registered.push(tool)}} as never)
+    registerReferenceTools(f.ctx,f.store,f.registry)
+    await vi.waitFor(()=>expect(registered).toHaveLength(4))
+    await registered.find(tool=>tool.name==='dsh_upstream_read').execute({referenceId:'reference'},
+      {agent:f.agent,signal:new AbortController().signal})
+    if(event==='agent/disposed')f.ctx.emit(event,{agent:f.agent})
+    else if(event==='session/disposed')f.ctx.emit(event,f.agent.session)
+    else f.ctx.emit('session/event',f.agent.session,{type:event} as never)
+    await vi.waitFor(()=>expect(f.bridge.endExecution).toHaveBeenCalledExactlyOnceWith('target','turn:100:10'))
+  })
   it('carries the selected graph material version to the atomic capture and rejects a mismatching host receipt',async()=>{
     const ctx=new Context()
     const capture=vi.fn(async()=>({referenceId:'ref',sourceTitle:'Source',sourceVersionId:'v1',cutoffEventId:'answer',selectedText:'selected'}))
