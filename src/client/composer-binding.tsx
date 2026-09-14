@@ -47,6 +47,7 @@ export class ReferenceSessionStore {
 
   private publish(snapshot: ReferenceSessionSnapshot): void {
     if (this.disposed) return
+    if (snapshot.status === 'ready' && snapshot.revision < this.snapshot.revision) return
     this.snapshot = Object.freeze(snapshot)
     for (const listener of this.listeners) listener()
   }
@@ -113,7 +114,7 @@ export class ReferenceSessionStore {
       const snapshot: ReferenceSessionSnapshot = { status: 'ready', revision: next.revision, pending: next.pending }
       this.publish(snapshot)
       this.startPoll(next.revision)
-      return snapshot
+      return this.snapshot
     } catch (error) {
       const snapshot: ReferenceSessionSnapshot = {
         status: 'blocked', revision: this.snapshot.revision, pending: this.snapshot.pending, error: errorText(error),
@@ -230,6 +231,7 @@ export class ComposerBinding implements EmbeddedComposerHandle {
   }
 
   async submit(): Promise<void> {
+    if (this.disposed) throw new Error('会话输入框已切换，请在当前输入框重试')
     const state = this.store.getSnapshot()
     if (state.status !== 'ready') throw this.fail(state.error ?? '注释内核状态未知，已阻止发送')
     if (state.pending !== null && state.pending.items.length > 0) {
@@ -276,25 +278,29 @@ export class ComposerBinding implements EmbeddedComposerHandle {
     text: string,
     images: readonly (SubmissionAttachment | EncodedImageAttachment)[],
   ): Promise<SubmitOutcome> {
+    if (this.disposed) return { kind: 'error', text: '会话输入框已切换，请在当前输入框重试' }
+    if (this.commitState === 'committing') return { kind: 'error', text: '正在提交，请勿重复发送' }
     if (text.trim().length === 0) return { kind: 'error', text: images.length === 0 ? '请输入正文' : '先输入正文' }
     const fields = submissionAttachmentFields(images)
     const requestDigest = submissionRequestDigest({ text, ...fields })
-    const identity = await this.identityFor(requestDigest)
-    if ('settled' in identity) {
-      if (identity.settled.kind === 'success') {
-        this.finishCommit()
-        await this.store.refresh()
-      } else {
-        this.fail(identity.settled.text ?? '上一次发送结果仍未确定')
-      }
-      return identity.settled
-    }
-    // Resolving an earlier uncertain admission may have consumed its references.
-    // Submit the current input against the refreshed pending set, never its predecessor.
-    const state = this.store.getSnapshot()
-    if (state.status !== 'ready') return { kind: 'error', text: state.error ?? '注释内核状态未知，已保留本次输入' }
     this.beginCommit()
+    let identity: PendingAdmission | { readonly settled: SubmitOutcome } | undefined
     try {
+      identity = await this.identityFor(requestDigest)
+      if ('settled' in identity) {
+        if (identity.settled.kind === 'success') {
+          this.finishCommit()
+          await this.store.refresh()
+        } else {
+          this.fail(identity.settled.text ?? '上一次发送结果仍未确定')
+        }
+        return identity.settled
+      }
+      // Stream delivery and component remounts can lag behind Host mutations.
+      // Read current references after resolving any uncertain earlier admission.
+      const state = await this.store.refresh()
+      if (this.disposed) throw new Error('会话输入框已切换，已保留本次输入，请重试')
+      if (state.status !== 'ready') throw new Error(state.error ?? '注释内核状态未知，已保留本次输入')
       const pending = state.pending
       const result = pending !== null && pending.items.length > 0
         ? unwrapRemote(await this.options.remote.submitAnnotated({
@@ -325,8 +331,14 @@ export class ComposerBinding implements EmbeddedComposerHandle {
       await this.store.refresh()
       return { kind: 'success' }
     } catch (error) {
-      this.uncertain = { clientSubmissionId: identity.clientSubmissionId, requestDigest }
-      const message = errorText(error)
+      if (identity !== undefined && !('settled' in identity)) this.uncertain = identity
+      let message = errorText(error)
+      if (/^Aggregate revision conflict: expected -?\d+, received -?\d+$/.test(message)) {
+        const refreshed = await this.store.refresh()
+        message = refreshed.status === 'ready'
+          ? '引用在发送准备期间发生变化，已更新引用列表并保留正文，请检查后重新发送'
+          : '引用在发送准备期间发生变化，正文已保留；引用列表暂时无法更新，请连接恢复后重试'
+      }
       this.fail(message)
       return { kind: 'error', text: message }
     }
@@ -337,15 +349,19 @@ export class ComposerBinding implements EmbeddedComposerHandle {
     | { readonly settled: SubmitOutcome }
   > {
     if (this.uncertain === undefined) return { clientSubmissionId: randomId('submission'), requestDigest }
-    if (this.uncertain.requestDigest === requestDigest) return this.uncertain
     const prior = unwrapRemote(await this.options.remote.readAdmission(this.uncertain.clientSubmissionId))
     if (prior === null || prior.state === 'failed') {
+      // Reuse the key after an unknown transport outcome: an older request may
+      // still arrive. Host admission identity prevents duplicate dispatch.
+      if (prior === null && this.uncertain.requestDigest === requestDigest) return this.uncertain
       this.uncertain = undefined
       return { clientSubmissionId: randomId('submission'), requestDigest }
     }
     if (prior.state === 'durable') {
       await this.store.refresh()
+      const sameRequest = this.uncertain.requestDigest === requestDigest
       this.uncertain = undefined
+      if (sameRequest) return { settled: { kind: 'success' } }
       return { clientSubmissionId: randomId('submission'), requestDigest }
     }
     return { settled: { kind: 'error', text: '上一次发送结果仍未确定，请稍后重试' } }

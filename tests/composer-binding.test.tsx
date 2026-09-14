@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createComposerBinding, ReferenceSessionStore } from '../src/client/composer-binding.tsx'
 import { ReferenceRail } from '../src/client/reference-rail.tsx'
+import { NativeClaimBindings } from '../src/client/native-claim-bindings.ts'
 import type { ReferenceSet } from '../src/domain/model.ts'
 import { selectedTextHash } from '../src/protocol/index.ts'
 import type { AnnotationCoreRemoteNamespace } from '../src/remote/client.ts'
@@ -51,6 +52,96 @@ function remote(initial: ReferenceSet | null = set()) {
 }
 
 describe('shared annotation composer binding', () => {
+  it('submits the latest two references even when the composer stream still shows one', async () => {
+    const fake = remote(set(1)), store = new ReferenceSessionStore(fake.value)
+    await store.ready()
+    const binding = createComposerBinding({ sessionId: 'session-1', layout: 'default', remote: fake.value, store })
+    fake.value.readPending = () => ok({ revision: 38, pending: set(2) })
+    try {
+      expect(await binding.submitClaim('question', [])).toEqual({ kind: 'success' })
+      expect(fake.calls.annotated.mock.calls[0]![0]).toMatchObject({ expectedRevision: 38, referenceRevision: 2 })
+    } finally { binding.dispose(); store.dispose() }
+  })
+
+  it('refreshes a preparation conflict, retains the draft and references, and waits for an explicit retry', async () => {
+    const fake = remote(set(1)), store = new ReferenceSessionStore(fake.value)
+    await store.ready()
+    const binding = createComposerBinding({ sessionId: 'session-1', layout: 'narrow', remote: fake.value, store })
+    binding.setVisibleDraft('keep this question')
+    fake.calls.annotated.mockImplementationOnce(async () => {
+      fake.value.readPending = () => ok({ revision: 38, pending: set(2) })
+      return { ok: false, error: { code: 'internal', message: 'Aggregate revision conflict: expected 1, received 2' } }
+    })
+    try {
+      await expect(binding.submit()).rejects.toThrow('已更新引用列表并保留正文')
+      expect(binding.getSnapshot()).toMatchObject({ visibleDraft: 'keep this question', pendingCount: 2 })
+      expect(fake.calls.annotated).toHaveBeenCalledTimes(1)
+      await binding.submit()
+      expect(fake.calls.annotated).toHaveBeenCalledTimes(2)
+      expect(fake.calls.annotated.mock.calls[1]![0]).toMatchObject({ expectedRevision: 38, referenceRevision: 2 })
+    } finally { binding.dispose(); store.dispose() }
+  })
+
+  it('does not let a delayed refresh overwrite a newer streamed snapshot', async () => {
+    const fake = remote(set(1)), store = new ReferenceSessionStore(fake.value)
+    await store.ready()
+    let finish!: (result: Awaited<ReturnType<AnnotationCoreRemoteNamespace['readPending']>>) => void
+    fake.value.readPending = () => new Promise(resolve => { finish = resolve })
+    const refreshing = store.refresh()
+    fake.publish(set(2))
+    await vi.waitFor(() => expect(store.getSnapshot().revision).toBe(2))
+    finish({ ok: true, value: { revision: 1, pending: set(1) } })
+    expect((await refreshing).pending?.items).toHaveLength(2)
+    store.dispose()
+  })
+
+  it('routes an existing native claim to the new binding after remount and fences other sessions', async () => {
+    const fake = remote(set(1)), registry = new NativeClaimBindings(), input = {}
+    const old = createComposerBinding({ sessionId: 'session-1', layout: 'default', remote: fake.value })
+    await old.store.ready()
+    const unregisterOld = registry.register(input, 'session-1', old)
+    const savedClaim = () => registry.submit(input, 'session-1', 'question', [])
+    const next = createComposerBinding({ sessionId: 'session-1', layout: 'default', remote: fake.value })
+    await next.store.ready()
+    const unregisterNext = registry.register(input, 'session-1', next)
+    old.dispose(); unregisterOld()
+    try {
+      expect(await savedClaim()).toEqual({ kind: 'success' })
+      expect(await old.submitClaim('stale', [])).toMatchObject({ kind: 'error' })
+      unregisterNext()
+      registry.register(input, 'other-session', next)
+      expect(await savedClaim()).toMatchObject({ kind: 'error' })
+      expect(fake.calls.annotated).toHaveBeenCalledTimes(1)
+    } finally { next.dispose() }
+  })
+
+  it('settles a lost successful response without sending the same question again', async () => {
+    const fake = remote(set(1)), binding = createComposerBinding({ sessionId: 'session-1', layout: 'default', remote: fake.value })
+    await binding.store.ready()
+    fake.calls.annotated.mockRejectedValueOnce(new Error('response lost'))
+    try {
+      expect(await binding.submitClaim('question', [])).toMatchObject({ kind: 'error' })
+      fake.calls.admission.mockResolvedValueOnce({ ok: true, value: { state: 'durable' } })
+      fake.value.readPending = () => ok({ revision: 4, pending: null })
+      expect(await binding.submitClaim('question', [])).toEqual({ kind: 'success' })
+      expect(fake.calls.annotated).toHaveBeenCalledTimes(1)
+      expect(fake.calls.plain).not.toHaveBeenCalled()
+    } finally { binding.dispose() }
+  })
+
+  it('prevents a second submission while the first is still refreshing', async () => {
+    const fake = remote(set(1)), binding = createComposerBinding({ sessionId: 'session-1', layout: 'default', remote: fake.value })
+    await binding.store.ready()
+    let finish!: () => void
+    fake.value.readPending = () => new Promise(resolve => { finish = () => resolve({ ok: true, value: { revision: 1, pending: set(1) } }) })
+    const first = binding.submitClaim('question', [])
+    await vi.waitFor(() => expect(finish).toBeDefined())
+    expect(await binding.submitClaim('question', [])).toMatchObject({ kind: 'error', text: '正在提交，请勿重复发送' })
+    fake.value.readPending = () => ok({ revision: 1, pending: set(1) })
+    finish(); await first
+    expect(fake.calls.annotated).toHaveBeenCalledTimes(1)
+    binding.dispose()
+  })
   it('updates multiple composers over streams without opening idle unary waits', async () => {
     const fake = remote(null)
     let publish!: () => void

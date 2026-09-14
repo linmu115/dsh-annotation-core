@@ -5,6 +5,9 @@ import type { Context } from '../context-types.ts'
 import type { AnnotationCoreClientService } from './service.tsx'
 import type { ComposerBinding } from './composer-binding.tsx'
 import { annotationConversationDefinition } from './conversation-projection.tsx'
+import { NativeClaimBindings } from './native-claim-bindings.ts'
+
+const nativeClaims = new NativeClaimBindings()
 
 interface NativeInput {
   beginCommand(claim: CommandClaim, span: { readonly start: number; readonly end: number; readonly draftRev: number }): boolean
@@ -33,13 +36,14 @@ function NativeAnnotationRail(props: NativeRailProps) {
   const snapshot = useSyncExternalStore(handle.subscribe, handle.getSnapshot, handle.getSnapshot)
 
   useEffect(() => () => handle.dispose(), [handle])
+  useEffect(() => nativeClaims.register(props.nativeInput, String(props.sessionId), handle), [props.nativeInput, props.sessionId, handle])
   useEffect(()=>props.core.registerNativeComposer(String(props.sessionId)),[props.core,props.sessionId])
   useEffect(() => {
     if (snapshot.pendingCount === 0 || snapshot.transport !== 'native-command-claim' || props.input.phase !== 'plain') return
     const claim: CommandClaim = {
       token: '',
       attachments: true,
-      submit: (text: string, _actx: unknown, attachments: readonly SubmitAttachment[]) => handle.submitClaim(text, attachments),
+      submit: (text: string, _actx: unknown, attachments: readonly SubmitAttachment[]) => nativeClaims.submit(props.nativeInput, String(props.sessionId), text, attachments),
     }
     props.nativeInput.beginCommand(claim, { start: 0, end: 0, draftRev: props.input.draftRev })
   }, [handle, props.input.draftRev, props.input.phase, props.nativeInput, snapshot.pendingCount, snapshot.transport])
