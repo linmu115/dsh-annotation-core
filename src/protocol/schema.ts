@@ -26,6 +26,7 @@ export const DshMessageCaptureSchema = z.object({
   anchorId: NonEmptyStringSchema,
   role: z.enum(['user', 'assistant']),
   occurrence: OccurrenceSchema,
+  expectedSourceVersionId: z.string().min(1).max(256).optional(),
 }).strict()
 
 export const DshMessageLocatorSchema = z.object({

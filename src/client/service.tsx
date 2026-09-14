@@ -88,7 +88,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     if (!operationId.trim() || operationId.length > 256) return Promise.reject(new TypeError('Invalid reference operation ID'))
     const key = JSON.stringify([target, operationId])
     const captureKey = JSON.stringify([capture.sourceSessionId, capture.messageId, capture.anchorId, capture.role,
-      capture.occurrence, capture.selectedText])
+      capture.occurrence, capture.selectedText, capture.expectedSourceVersionId])
     const existing = this.graphReferenceTasks.get(key)
     if (existing) return existing.captureKey === captureKey ? existing.task
       : Promise.reject(new Error('同一个引用操作不能更换来源'))

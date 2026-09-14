@@ -9,7 +9,7 @@ import { z } from 'zod'
 export interface UpstreamHost {
   readonly protocolVersion: 1
   directory(workspaceId?: string, after?: string): Promise<{ items: {id:string;title:string}[];nextCursor:string|null }>
-  capture(input:{operationId:string;sourceNativeSessionId:string;targetNativeSessionId:string;anchorId:string;selectedText:string}): Promise<{
+  capture(input:{operationId:string;sourceNativeSessionId:string;targetNativeSessionId:string;anchorId:string;selectedText:string;expectedSourceVersionId?:string}): Promise<{
     referenceId:string;sourceTitle:string;sourceVersionId:string;cutoffEventId:string;selectedText:string
   }>
   inspect(targetNativeSessionId:string,referenceId:string): Promise<{selectedText:string;sourceVersionId:string;cutoffEventId:string}>
@@ -25,7 +25,10 @@ export function upstreamOf(item:ReferenceItem){return item.sourceType==='dsh-mes
 export async function captureUpstream(ctx:Context,targetSessionId:string,profileId:string,capture:DshMessageCapture,operationId:string):Promise<DshMessageReferenceSource>{
   if(capture.role!=='assistant')throw new Error('请选择一条已完成的 AI 回复')
   const saved=await upstreamHost(ctx).capture({operationId,sourceNativeSessionId:capture.sourceSessionId,targetNativeSessionId:targetSessionId,
-    anchorId:capture.messageId??capture.anchorId,selectedText:capture.selectedText})
+    anchorId:capture.messageId??capture.anchorId,selectedText:capture.selectedText,
+    ...(capture.expectedSourceVersionId === undefined ? {} : {expectedSourceVersionId:capture.expectedSourceVersionId})})
+  if (capture.expectedSourceVersionId && saved.sourceVersionId !== capture.expectedSourceVersionId)
+    throw new Error('来源版本与所选材料不一致，请重新选择回复')
   return {sourceType:'dsh-message',selectedText:capture.selectedText,locator:{profileId,sessionId:capture.sourceSessionId,
     anchorId:capture.anchorId,role:'assistant',occurrence:capture.occurrence,selectedTextHash:selectedTextHash(capture.selectedText),
     upstream:{kind:'fixed-upstream',referenceId:saved.referenceId,sourceTitle:saved.sourceTitle,sourceVersionId:saved.sourceVersionId,

@@ -16,6 +16,8 @@ import { ReferenceSetSchema } from '../src/host/store.ts'
 import { annotationContextMessageId, parseSerializedAnnotationContext, serializePreparedReferenceSet } from '../src/protocol/index.ts'
 import { collectReferenceDocuments } from '../src/domain/budget.ts'
 import type { ReferenceSet } from '../src/domain/model.ts'
+import { captureUpstream } from '../src/host/upstream.ts'
+import { DshMessageCaptureSchema } from '../src/protocol/index.ts'
 
 const digest='sha256:'+'a'.repeat(64)
 const source:ReferenceSource={sourceType:'dsh-message',selectedText:'selected',locator:{profileId:'web',sessionId:'source',anchorId:'answer',
@@ -44,6 +46,19 @@ async function fixture(sent=true){
   return {ctx,store,bridge,registry,agent,events}
 }
 describe('fixed upstream annotation lifecycle and model access',()=>{
+  it('carries the selected graph material version to the atomic capture and rejects a mismatching host receipt',async()=>{
+    const ctx=new Context()
+    const capture=vi.fn(async()=>({referenceId:'ref',sourceTitle:'Source',sourceVersionId:'v1',cutoffEventId:'answer',selectedText:'selected'}))
+    ctx.provide('maintenanceSessionContext' as never,{protocolVersion:1,capture})
+    const input=DshMessageCaptureSchema.parse({sourceSessionId:'source',anchorId:'answer',messageId:'answer',role:'assistant',
+      occurrence:0,selectedText:'selected',expectedSourceVersionId:'v1'})
+    const source=await captureUpstream(ctx,'target','web',input,'graph-op')
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({expectedSourceVersionId:'v1',sourceNativeSessionId:'source',targetNativeSessionId:'target'}))
+    expect(source.locator.upstream?.sourceVersionId).toBe('v1')
+    capture.mockResolvedValueOnce({referenceId:'ref',sourceTitle:'Source',sourceVersionId:'v2',cutoffEventId:'answer',selectedText:'selected'})
+    await expect(captureUpstream(ctx,'target','web',input,'graph-op')).rejects.toThrow('所选材料')
+    expect(()=>DshMessageCaptureSchema.parse({...input,expectedSourceVersionId:''})).toThrow()
+  })
   it('records a durable target binding and revokes only that relation on delete',async()=>{
     const f=await fixture(); const outbox=new BacklinkOutbox(f.store,f.registry)
     await outbox.runPending('target');await outbox.runPending('target')
