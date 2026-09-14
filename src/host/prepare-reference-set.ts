@@ -20,6 +20,7 @@ export type PrepareResult =
     readonly estimatedTokens: number
     readonly limit: number
     readonly documents: readonly PreparedReferenceDocument[]
+    readonly budgetBasis?: ReferenceBudgetOptions['basis']
   }
   | {
     readonly kind: 'needs-confirmation'
@@ -245,6 +246,7 @@ export async function prepareReferenceSet(
       estimatedTokens: budget.estimatedTokens,
       limit: budget.limit,
       documents: budget.documents,
+      ...(options.budget?.basis ? { budgetBasis: options.budget.basis } : {}),
     }
   } finally {
     if (started) await registry.endUpstreamExecution(set.sessionId, executionId)

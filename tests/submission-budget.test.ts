@@ -24,6 +24,44 @@ function fixture() {
 }
 
 describe('initial reference allowance', () => {
+  it('uses native inner usage and provider payload accounting instead of outer transcript size', async()=>{
+    const f=fixture()
+    f.history.push(f.user('outer transcript already consumed '.repeat(10000)))
+    const countInputBytes=vi.fn((_messages:unknown,_text?:string)=>500+(_text?.length??0)*2)
+    f.ctx.provide('codexRuntime' as never,{prepareReferenceBudget:async()=>({basis:'verified-thread',contextWindow:200000,
+      inputTokens:180000,outputTokens:1000,maxInputBytes:262144,countInputBytes})})
+    const budget=await submissionReferenceBudget(f.ctx,f.agent,f.user(),{provider:'codex',model:'model'},undefined)
+    expect(budget.basis).toBe('verified-thread')
+    expect(budget.maxTokens).toBeGreaterThan(0)
+    expect(budget.maxTokens).toBeLessThan(10000)
+    expect(budget.countTokens?.('"'.repeat(100))).toBe(200)
+  })
+  it('allows a bounded conservative initial reference without inventing a Codex model window',async()=>{
+    const f=fixture(), diagnostic=vi.spyOn(console,'info').mockImplementation(()=>undefined)
+    try {
+      f.ctx.provide('codexRuntime' as never,{prepareReferenceBudget:async()=>({basis:'conservative',inputTokens:0,outputTokens:0,
+        maxReferenceTokens:8192,maxInputBytes:262144,countInputBytes:(_messages:unknown,text='')=>1000+Buffer.byteLength(JSON.stringify(JSON.stringify(text)))})})
+      const budget=await submissionReferenceBudget(f.ctx,f.agent,f.user(),{provider:'codex',model:'model'},undefined)
+      expect(budget.contextWindow).toBeUndefined()
+      expect(budget.basis).toBe('conservative')
+      expect(budget.maxTokens).toBe(8192)
+      expect(diagnostic).toHaveBeenCalled()
+    } finally {diagnostic.mockRestore()}
+  })
+  it('retains no initial allowance when the native provider input byte limit is already exhausted',async()=>{
+    const f=fixture()
+    f.ctx.provide('codexRuntime' as never,{prepareReferenceBudget:async()=>({basis:'new-thread',contextWindow:200000,inputTokens:0,outputTokens:0,
+      maxInputBytes:10000,countInputBytes:()=>9000})})
+    expect((await submissionReferenceBudget(f.ctx,f.agent,f.user(),{provider:'codex',model:'model'},undefined)).maxTokens).toBe(0)
+  })
+  it('charges native system and managed tool catalogues even without a verified model capacity',async()=>{
+    const f=fixture(),log=vi.spyOn(console,'info').mockImplementation(()=>undefined)
+    try{
+      f.ctx.provide('codexRuntime' as never,{prepareReferenceBudget:async()=>({basis:'conservative',inputTokens:0,outputTokens:0,
+        maxReferenceTokens:8192,maxInputBytes:20000,toolSchemaBytes:10000,systemPromptBytes:1000,countInputBytes:()=>1000})})
+      expect((await submissionReferenceBudget(f.ctx,f.agent,f.user(),{provider:'codex',model:'model'},undefined)).maxTokens).toBe(0)
+    }finally{log.mockRestore()}
+  })
   it.each(['history', 'system', 'tools', 'input', 'output'] as const)('subtracts the actual %s before assigning reference space', async field => {
     const f = fixture()
     const baseline = (await f.budget()).maxTokens!

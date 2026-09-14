@@ -37,6 +37,8 @@ export interface ReferenceBudgetOptions {
   readonly countTokens?: (text: string) => number
   readonly maxTokens?: number
   readonly includeEnvelope?: boolean
+  readonly basis?: 'model-metadata' | 'new-thread' | 'verified-thread' | 'conservative'
+  readonly validateScope?: () => Promise<void>
 }
 
 export interface ReferenceBudgetResult {
@@ -169,6 +171,7 @@ export function calculateReferenceBudget(
     limit,
     overBy,
     issue: 'over-budget',
+    ...(options.basis === 'conservative' ? { message: '当前原生容量或旧用量尚不可确认，本次采用保守引用上限' } : {}),
     ...(item.sourceType === 'obsidian-note' ? { notePath: item.locator.notePath } : {}),
   }))
   return Object.freeze({

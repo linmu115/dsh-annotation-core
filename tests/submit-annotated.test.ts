@@ -11,6 +11,7 @@ import type {
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import { SessionId, SessionStore } from '@deepseek-ai/dsh-session'
+import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
 import { fileHandleText } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -173,6 +174,22 @@ function annotatedRequest(store: AnnotationStore, sessionId: string, overrides: 
 }
 
 describe('Host annotated submission transaction', () => {
+  it.each(['model', 'executor-preview'])('retains the draft when selection changes during asynchronous %s',async stage=>{
+    const f=fixture(),entered=deferred(),release=deferred()
+    await addReference(f.store,f.session.id)
+    const wait=async()=>{entered.resolve();await release.promise}
+    if(stage==='model')vi.spyOn(f.ctx.llm,'resolveModelInfo').mockImplementation(async()=>{
+      await wait();return {context:{contextWindow:1000000}} as never
+    })
+    else f.registry.register({preview:wait,read:()=>undefined,activeInputIds:()=>[]})
+    const sending=f.coordinator.submitAnnotated(f.agent,annotatedRequest(f.store,f.session.id))
+    await entered.promise
+    f.session.append('model/selection',{provider:'small',model:'tiny'} satisfies ModelSelection)
+    release.resolve()
+    expect(await sending).toMatchObject({kind:'error'})
+    expect(f.sends).toHaveLength(0)
+    expect(f.store.readPending(f.session.id).pending?.items).toHaveLength(1)
+  })
   it('delivers source question and completed answer to executor admission and native history once, with a stable retry', async () => {
     const f=fixture()
     const read=vi.fn(async()=>({referenceId:'reference',sourceVersionId:'source-v1',cutoffEventId:'source-answer',

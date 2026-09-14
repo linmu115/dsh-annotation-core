@@ -14,7 +14,7 @@ import {
   submissionRequestDigest,
 } from '../protocol/index.ts'
 import { prepareSubmission } from './admit-images.ts'
-import { submissionReferenceBudget } from './submission-budget.ts'
+import { submissionReferenceBudget, submissionBudgetScope } from './submission-budget.ts'
 import type { SubmitImageAttachment } from './admit-images.ts'
 import type { BacklinkOutbox } from './backlink-outbox.ts'
 import { prepareReferenceSet } from './prepare-reference-set.ts'
@@ -156,9 +156,11 @@ export class AnnotationSubmissionCoordinator {
     const defaults = this.ctx.get('agentDefaultModel' as never) as { currentSelection(): { provider: string; model: string } } | undefined
     const selection = selectedModel(agent) ?? (agent.options.provider && agent.options.model
       ? { provider: agent.options.provider, model: agent.options.model } : defaults?.currentSelection())
+    const preparedScope = submissionBudgetScope(agent)
     let budget
     try {
-      const model = selection === undefined ? undefined : await this.ctx.get('llm')?.resolveModelInfo(selection.provider, selection.model, signal)
+      const model = selection === undefined || selection.provider === 'codex' ? undefined
+        : await this.ctx.get('llm')?.resolveModelInfo(selection.provider, selection.model, signal)
       budget = await submissionReferenceBudget(this.ctx, agent, message, selection, model, signal)
     } catch (error) {
       signal?.throwIfAborted()
@@ -171,6 +173,12 @@ export class AnnotationSubmissionCoordinator {
       ...(signal === undefined ? {} : { signal }),
     })
     if (prepared.kind !== 'ready') return prepareFailure(prepared)
+    const validateScope = async () => {
+      await budget.validateScope?.()
+      if (preparedScope !== submissionBudgetScope(agent)) throw new Error('会话或模型在引用准备期间改变，已保留草稿，请重试')
+    }
+    try { await validateScope() }
+    catch (error) { return { kind: 'error', code: 'source-blocked', message: errorText(error) } }
 
     const begun = await this.store.beginAnnotatedAdmission(agent.id, {
       expectedRevision: input.expectedRevision,
@@ -195,6 +203,7 @@ export class AnnotationSubmissionCoordinator {
         clientSubmissionId: input.clientSubmissionId, requestDigest: input.requestDigest,
         setId: input.setId, contextMessageId, contextDigest: serialized.digest, preparedSet, createdAt: input.createdAt })
       await acceptanceRegistry(this.ctx)?.preview(agent, [message, context], signal ?? new AbortController().signal)
+      await validateScope()
     } catch (error) {
       await this.failTerminal(agent.id, input.clientSubmissionId, error)
       return { kind: 'error', code: 'delivery', message: errorText(error) }
@@ -272,6 +281,7 @@ export class AnnotationSubmissionCoordinator {
 
   private async checkSubmissionCapability(agent: Agent, images: readonly SubmitImageAttachment[] | undefined, signal?: AbortSignal): Promise<SubmissionFailure | undefined> {
     signal?.throwIfAborted()
+    if (!images?.length) return
     const selection = selectedModel(agent)
     if (selection === undefined) return
     const model = await this.ctx.get('llm')?.resolveModelInfo(selection.provider, selection.model, signal)
