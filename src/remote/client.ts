@@ -22,6 +22,7 @@ export { TYPERT_REMOTE } from './typert.ts'
 export interface AnnotationCoreRemoteNamespace {
   upstreamDirectory(request:{workspaceId?:string;after?:string}):Promise<RemoteResult<{items:{id:string;title:string}[];nextCursor:string|null}>>
   captureUpstream(request:{capture:DshMessageCapture;operationId:string}):Promise<RemoteResult<DshMessageReferenceSource>>
+  describeGraphReference?(referenceId:string):Promise<RemoteResult<{source:DshMessageReferenceSource;state:'pending'|'sent'}>>
   readPending(): Promise<RemoteResult<{ revision: number; pending: ReferenceSet | null }>>
   resolveReferenceLink(referenceId: string): Promise<RemoteResult<ReferenceLinkSummary | null>>
   addReference(request: AddReferenceRequest): Promise<RemoteResult<{

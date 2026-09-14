@@ -29,6 +29,7 @@ function fixture() {
   ctx.provide('sessions', sessions as never)
   core = new AnnotationCoreClientService(ctx, { profileId: 'web' })
   const remote = {
+    describeGraphReference:vi.fn(async (_referenceId:string)=>({ok:true,value:{source,state:'pending' as 'pending'|'sent'}})),
     captureUpstream: vi.fn(async () => ({ ok: true, value: source })),
     readPending: vi.fn(async () => ({ ok: true, value: store.readPending('target') })),
     addReference: vi.fn(async (input: Parameters<AnnotationStore['addReference']>[1]) => ({ ok: true, value: await store.addReference('target', input) })),
@@ -42,6 +43,35 @@ function fixture() {
 }
 
 describe('graph reference actions', () => {
+  it('adopts a saved fixed reference after reopening without recapturing the latest source or duplicating drafts', async()=>{
+    const f=fixture(),notice=vi.fn()
+    window.addEventListener('dsh-session-references-changed',notice)
+    try {
+      expect(await f.core.prepareGraphReferences('target',['relation','relation'])).toEqual({preparedCount:1})
+      expect(await f.core.prepareGraphReferences('target',['relation'])).toEqual({preparedCount:0})
+      expect(f.store.readPending('target').pending?.items[0]).toMatchObject({locator:{upstream:{sourceVersionId:'fixed-version',cutoffEventId:'completed-reply'}}})
+      expect(f.remote.captureUpstream).not.toHaveBeenCalled()
+      expect(f.remote.addReference).toHaveBeenCalledTimes(1)
+      expect(f.remote.submitAnnotated).not.toHaveBeenCalled()
+      expect(f.remote.submitPlainClaim).not.toHaveBeenCalled()
+      expect(notice).toHaveBeenCalledOnce()
+      expect(f.core.features).toContain('session-main-graph-v2')
+    } finally {window.removeEventListener('dsh-session-references-changed',notice)}
+  })
+  it('does not silently rebind a sent reference whose local admission was lost',async()=>{
+    const f=fixture()
+    f.remote.describeGraphReference.mockResolvedValueOnce({ok:true,value:{source,state:'sent'}})
+    await expect(f.core.prepareGraphReferences('target',['relation'])).rejects.toThrow('缺少对应提交记录')
+    expect(f.remote.addReference).not.toHaveBeenCalled()
+  })
+  it('rejects a revoked source or navigation change before adopting the saved graph reference',async()=>{
+    const f=fixture()
+    f.remote.describeGraphReference.mockRejectedValueOnce(new Error('此引用在目标会话中不可用'))
+    await expect(f.core.prepareGraphReferences('target',['relation'])).rejects.toThrow('不可用')
+    f.remote.describeGraphReference.mockImplementationOnce(async()=>{f.switchAway();return {ok:true,value:{source,state:'pending'}}})
+    await expect(f.core.prepareGraphReferences('target',['relation'])).rejects.toThrow('目标页面已切换')
+    expect(f.remote.addReference).not.toHaveBeenCalled()
+  })
   it('adds through the same durable operation and safely retries a lost acknowledgement', async () => {
     const f = fixture()
     f.remote.addReference.mockImplementationOnce(async input => {

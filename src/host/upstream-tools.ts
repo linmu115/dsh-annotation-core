@@ -4,6 +4,7 @@ import type { AnnotationStore } from './store.ts'
 import { availableReferenceSets } from './reference-tools.ts'
 import { UpstreamToolBudgets } from './upstream-budget.ts'
 import { upstreamHost, upstreamOf } from './upstream.ts'
+import { randomUUID } from 'node:crypto'
 
 interface ManagedRuntimeSupport {
   readonly apiVersion: number
@@ -37,18 +38,26 @@ export function registerUpstreamTools(ctx: Context, store: AnnotationStore, budg
             if (search && (!args.query || args.query.length > 200)) throw new Error('搜索词需为 1 至 200 个字符')
             if (args.cursor && args.cursor.length > 2048) throw new Error('引用读取游标无效')
             const allowance = budgets.reserve(agent)
+            const host=upstreamHost(ctx),requestId=randomUUID()
             let output: string | undefined
             try {
-              const result = await upstreamHost(ctx).read({
+              const result = await host.read({
                 targetNativeSessionId: agent.session.id, referenceId: upstream.referenceId,
-                executionId: allowance.executionId, maxBytes: allowance.bytes, totalBytes: allowance.totalBytes,
+                executionId: allowance.executionId, requestId, maxBytes: allowance.bytes, totalBytes: allowance.totalBytes,
                 ...(args.cursor ? { cursor: args.cursor } : {}), ...(search ? { query: args.query! } : {}),
               })
               exec.signal.throwIfAborted()
               if (!availableReferenceSets(store, agent).some(candidate => candidate.items.some(item => item.referenceId === args.referenceId)))
                 throw new Error('引用在读取期间已撤销')
-              output = JSON.stringify(result)
+              const candidate=JSON.stringify(result)
+              if(Buffer.byteLength(candidate)>allowance.bytes)throw new Error('上游返回超过已预留额度，已拒绝注入')
+              await host.settleRead?.(agent.session.id,upstream.referenceId,requestId,'returned')
+              exec.signal.throwIfAborted()
+              output = candidate
               return output
+            } catch(error) {
+              await host.settleRead?.(agent.session.id,upstream.referenceId,requestId,'failed').catch(()=>undefined)
+              throw error
             } finally { allowance.settle(output) }
           },
         })

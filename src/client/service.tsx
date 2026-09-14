@@ -22,6 +22,7 @@ export interface ClientConfig { readonly profileId: string }
 const VERSION = '0.3.4'
 type _ClientRemoteTypeRegistration = ClientRemote
 const FEATURES: readonly AnnotationCoreFeature[] = Object.freeze([
+  'session-main-graph-v2',
   'graph-reference-actions-v1',
   'cross-session-upstream-v1',
   'dsh-message-source-v1', 'embedded-composer-v1', 'embedded-conversation-node-v1', 'answer-link-v1', 'backlink-retry-v1',
@@ -29,6 +30,9 @@ const FEATURES: readonly AnnotationCoreFeature[] = Object.freeze([
 ])
 
 function id(prefix: string): string { return `${prefix}-${globalThis.crypto.randomUUID()}` }
+function notifyReferenceChange(sessionId:string) {
+  if(typeof window!=='undefined')window.dispatchEvent(new CustomEvent('dsh-session-references-changed',{detail:{sessionId}}))
+}
 
 function validateCapture(input: DshMessageCapture): DshMessageCapture {
   if (
@@ -62,6 +66,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
   private readonly lifetime=new AbortController()
   private readonly nativeComposers=new Map<string,number>()
   private crossSessionTask:Promise<void>|undefined
+  private readonly graphPrepareTasks=new Map<string,Promise<{preparedCount:number}>>()
   private readonly graphReferenceTasks = new Map<string, {
     captureKey: string
     task: Promise<{ setId: string; referenceId: string; created: boolean }>
@@ -99,6 +104,38 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
   }
 
   private async addCrossSessionReferenceToComposer(target: string, capture: DshMessageCapture, operationId: string) {
+    const beforeCommit=await this.openTargetComposer(target)
+    const source = unwrapRemote(await this.remote(target).captureUpstream({ capture, operationId }))
+    beforeCommit()
+    return this.addReference(target, source, { operationId, referenceId: source.locator.upstream!.referenceId, beforeCommit })
+  }
+
+  prepareGraphReferences(target:string,referenceIds:readonly string[]):Promise<{preparedCount:number}> {
+    if(!target.trim()||referenceIds.length>50||referenceIds.some(ref=>!ref.trim()||ref.length>256))
+      return Promise.reject(new Error('主干图引用身份无效或一次选入的来源过多'))
+    const refs=[...new Set(referenceIds)].sort(),key=JSON.stringify([target,refs])
+    const prior=this.graphPrepareTasks.get(key);if(prior)return prior
+    const task=(async()=>{
+      const beforeCommit=await this.openTargetComposer(target),remote=this.remote(target)
+      if(!remote.describeGraphReference)throw new Error('当前实例尚未接通主干图引用能力')
+      let preparedCount=0
+      for(const referenceId of refs){
+        beforeCommit()
+        const described=unwrapRemote(await remote.describeGraphReference(referenceId))
+        const link=unwrapRemote(await remote.resolveReferenceLink(referenceId))
+        beforeCommit()
+        if(link?.state==='deleted')throw new Error('这条图连接已解除，请刷新图谱')
+        if(link)continue
+        if(described.state==='sent')throw new Error('引用已发送，但当前实例缺少对应提交记录；请先恢复会话引用数据')
+        const result=await this.addReference(target,described.source,{operationId:`graph-adopt:${referenceId}`,referenceId,beforeCommit})
+        if(result.created)preparedCount++
+      }
+      return {preparedCount}
+    })().finally(()=>this.graphPrepareTasks.delete(key))
+    this.graphPrepareTasks.set(key,task);return task
+  }
+
+  private async openTargetComposer(target:string) {
     const sessions = this.ctx.get('sessions') as unknown as {
       refresh(): Promise<void>; open(id: string): void; list: { getSnapshot(): { current?: string } }
     }
@@ -118,13 +155,12 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
       await new Promise(resolve => setTimeout(resolve, 50))
     }
     assertTarget()
-    const source = unwrapRemote(await this.remote(target).captureUpstream({ capture, operationId }))
     const beforeCommit = () => {
       assertTarget()
       if (!this.nativeComposers.has(target)) throw new Error('目标输入框未就绪；选区已保留，可以重试')
     }
     beforeCommit()
-    return this.addReference(target, source, { operationId, referenceId: source.locator.upstream!.referenceId, beforeCommit })
+    return beforeCommit
   }
 
   async resolveReferenceLink(sessionId: string, referenceId: string) {
@@ -175,6 +211,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
       expectedRevision: pending.revision, operationId, setId: pending.pending?.setId ?? id('set'),
       referenceId: options.referenceId ?? id('reference'), source, createdAt: Date.now(),
     }))
+    notifyReferenceChange(sessionId)
     return { setId: result.setId, referenceId: result.referenceId, created: result.created }
   }
 
@@ -186,6 +223,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
   async discardPendingOperation(sessionId: string, operationId: string, options: { notifySource?: boolean } = {}): Promise<void> {
     const remote = this.remote(sessionId); const state = unwrapRemote(await remote.readPending())
     unwrapRemote(await remote.discardPendingOperation({ expectedRevision: state.revision, operationId, ...options }))
+    notifyReferenceChange(sessionId)
   }
 
   async updateComment(sessionId: string, referenceId: string, comment: string): Promise<void> {
@@ -196,6 +234,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
   async removeReference(sessionId: string, referenceId: string): Promise<void> {
     const remote = this.remote(sessionId); const state = unwrapRemote(await remote.readPending())
     unwrapRemote(await remote.removeReference({ expectedRevision: state.revision, referenceId }))
+    notifyReferenceChange(sessionId)
   }
 
   async deleteReferenceLink(sessionId: string, setId: string, referenceId: string): Promise<{ deleted: boolean; scope: 'pending' | 'sent' }> {
@@ -207,6 +246,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
       referenceId,
       deletedAt: Date.now(),
     }))
+    notifyReferenceChange(sessionId)
     if (result.scope === 'pending') {
       await this.refreshDialogPending(sessionId, setId)
     } else {
@@ -247,6 +287,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
       onRemove: async (referenceId) => {
         const state = unwrapRemote(await remote.readPending())
         unwrapRemote(await remote.removeReference({ expectedRevision: state.revision, referenceId }))
+        notifyReferenceChange(input.sessionId)
         const refreshed = await binding.store.refresh()
         if (refreshed.pending !== null) this.dialog.replace(refreshed.pending); else this.dialog.close()
       },
@@ -283,6 +324,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
         const { set, sessionId, remote } = target()
         const state = unwrapRemote(await remote.readPending())
         unwrapRemote(await remote.removeReference({ expectedRevision: state.revision, referenceId }))
+        notifyReferenceChange(sessionId)
         await this.refreshDialogPending(sessionId, set.setId)
       }}
       deleteLink={async (setId, referenceId) => {

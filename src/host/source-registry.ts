@@ -122,6 +122,8 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
     if (upstream) {
       if (upstream.targetSessionId !== binding.sessionId) throw new Error('引用绑定的目标会话不一致')
       await upstreamHost(this.ctx).bind(binding.sessionId, upstream.referenceId, binding.userMessageId)
+      const requestId=binding.item.sourceType==='dsh-message'?binding.item.initialContext?.disclosureRequestId:undefined
+      if(requestId)await upstreamHost(this.ctx).settleRead?.(binding.sessionId,upstream.referenceId,requestId,'returned')
       return { kind: 'maintenance-reference', referenceId: upstream.referenceId,
         targetMessageId: binding.userMessageId, writtenAt: Date.now() }
     }

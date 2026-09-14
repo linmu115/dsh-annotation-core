@@ -1,5 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { captureUpstream,upstreamHost } from '../host/upstream.ts'
+import { captureUpstream,upstreamHost,describeGraphUpstream } from '../host/upstream.ts'
 import type { DshMessageCapture } from '../protocol/index.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
@@ -102,6 +102,9 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
   }
   captureUpstream(agent:Agent,request:{capture:DshMessageCapture;operationId:string}){
     return captureUpstream(this.ctx,agent.id,this.store.read(agent.id).profileId,request.capture,request.operationId)
+  }
+  describeGraphReference(agent:Agent,referenceId:string){
+    return describeGraphUpstream(this.ctx,agent.id,this.store.read(agent.id).profileId,referenceId)
   }
 
   async addReference(agent: Agent, request: AddReferenceRequest) {

@@ -10,6 +10,7 @@ import type {
 } from '../protocol/index.ts'
 
 export type AnnotationCoreFeature =
+  | 'session-main-graph-v2'
   | 'graph-reference-actions-v1'
   | 'cross-session-upstream-v1'
   | 'dsh-message-source-v1'
@@ -61,6 +62,8 @@ export interface EmbeddedComposerHandle {
 }
 
 export interface AnnotationCoreClient {
+  /** Opens the real target and adopts existing fixed incoming references without recapturing newer history. */
+  prepareGraphReferences?(targetSessionId: string, referenceIds: readonly string[]): Promise<{ preparedCount: number }>
   openCrossSessionReference?(capture:DshMessageCapture):Promise<void>
   /** Opens a real target conversation and adds a pending reference; never submits it. */
   addCrossSessionReference(

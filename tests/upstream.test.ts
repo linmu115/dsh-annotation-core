@@ -16,7 +16,7 @@ import { ReferenceSetSchema } from '../src/host/store.ts'
 import { annotationContextMessageId, parseSerializedAnnotationContext, serializePreparedReferenceSet } from '../src/protocol/index.ts'
 import { collectReferenceDocuments } from '../src/domain/budget.ts'
 import type { ReferenceSet } from '../src/domain/model.ts'
-import { captureUpstream } from '../src/host/upstream.ts'
+import { captureUpstream, describeGraphUpstream } from '../src/host/upstream.ts'
 import { DshMessageCaptureSchema } from '../src/protocol/index.ts'
 
 const digest='sha256:'+'a'.repeat(64)
@@ -33,7 +33,7 @@ async function fixture(sent=true){
     await store.finalizeDurableSubmission('target',{expectedRevision:3,clientSubmissionId:'submission',userMessageId:'user',userObserved:true,contextObserved:true,committedAt:4})
   }
   const ctx=new Context()
-  const bridge={protocolVersion:1,endExecution:vi.fn(async()=>({})),bind:vi.fn(async()=>({})),inspect:vi.fn(async()=>({selectedText:'selected',sourceVersionId:'v1',cutoffEventId:'completed-answer'})),
+  const bridge={protocolVersion:1,settleRead:vi.fn(async()=>({recorded:true})),endExecution:vi.fn(async()=>({})),bind:vi.fn(async()=>({})),inspect:vi.fn(async()=>({selectedText:'selected',sourceVersionId:'v1',cutoffEventId:'completed-answer'})),
     read:vi.fn(async()=>({referenceId:'reference',sourceVersionId:'v1',cutoffEventId:'completed-answer',
       items:[{eventId:'question',role:'user',text:'Why use gradient checkpointing?',offset:0,complete:true},
         {eventId:'completed-answer',role:'assistant',text:'bounded upstream: recomputation trades time for GPU memory. Full selected answer.',offset:0,complete:true}],
@@ -46,6 +46,30 @@ async function fixture(sent=true){
   return {ctx,store,bridge,registry,agent,events}
 }
 describe('fixed upstream annotation lifecycle and model access',()=>{
+  it('resolves the recorded source identity without capturing or extending its version',async()=>{
+    const ctx=new Context(),describe=vi.fn(async()=>({sourceNativeSessionId:'native-source',record:{
+      referenceId:'ref',sourceAnchorId:'real-message-id',sourceVersionId:'old-retained-version',cutoffEventId:'fixed-completed-event',
+      sourceTitle:'Source',selectedText:'quote',state:'pending',
+    }})),capture=vi.fn()
+    ctx.provide('maintenanceSessionContext' as never,{protocolVersion:1,describe,capture})
+    const result=await describeGraphUpstream(ctx,'target','web','ref')
+    expect(result.source.locator).toMatchObject({sessionId:'native-source',messageId:'real-message-id',upstream:{sourceVersionId:'old-retained-version',targetSessionId:'target'}})
+    expect(describe).toHaveBeenCalledExactlyOnceWith('target','ref')
+    expect(capture).not.toHaveBeenCalled()
+  })
+  it('records tool delivery only after validation and records cancellation without exposing the response',async()=>{
+    const f=await fixture(),registered:any[]=[]
+    f.ctx.provide('tools',{register:(tool:any)=>registered.push(tool)} as never)
+    registerUpstreamTools(f.ctx,f.store,new UpstreamToolBudgets())
+    await vi.waitFor(()=>expect(registered).toHaveLength(2))
+    await registered[0].execute({referenceId:'reference'},{agent:f.agent,signal:new AbortController().signal})
+    const input=(f.bridge.read.mock.calls as unknown as [{requestId:string}][]).at(-1)![0]
+    expect(f.bridge.settleRead).toHaveBeenCalledWith('target','reference',input.requestId,'returned')
+    const abort=new AbortController(),page=await f.bridge.read()
+    f.bridge.read.mockImplementationOnce(async()=>{abort.abort();return page})
+    await expect(registered[0].execute({referenceId:'reference'},{agent:f.agent,signal:abort.signal})).rejects.toThrow()
+    expect(f.bridge.settleRead).toHaveBeenLastCalledWith('target','reference',expect.any(String),'failed')
+  })
   it('ends initial read executions on success and source failure', async()=>{
     const f=await fixture(false)
     const set=f.store.readPending('target').pending!

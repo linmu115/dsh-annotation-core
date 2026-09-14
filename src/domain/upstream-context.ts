@@ -14,6 +14,7 @@ export const PreparedUpstreamContextSchema = z.object({
   detailsCursor: z.string().max(2048).optional(),
   nextCursor: z.string().max(2048).nullable(),
   hasMore: z.boolean(),
+  disclosureRequestId: z.string().min(1).max(256).optional(),
 }).strict()
 
 export type PreparedUpstreamContext = z.infer<typeof PreparedUpstreamContextSchema>

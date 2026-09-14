@@ -4,6 +4,7 @@ import type { DshMessageCapture, DshMessageReferenceSource } from '../protocol/i
 import { selectedTextHash } from '../protocol/index.ts'
 import { PreparedUpstreamContextSchema } from '../domain/upstream-context.ts'
 import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
 
 /** Structural subset of the optional host capability; Engine owns the full DTO and all range rules. */
 export interface UpstreamHost {
@@ -14,7 +15,9 @@ export interface UpstreamHost {
   }>
   inspect(targetNativeSessionId:string,referenceId:string): Promise<{selectedText:string;sourceVersionId:string;cutoffEventId:string}>
   bind(targetNativeSessionId:string,referenceId:string,targetMessageId:string|null): Promise<unknown>
-  read(input:{targetNativeSessionId:string;referenceId:string;executionId:string;cursor?:string;query?:string;view?:'selected-turn';maxBytes:number;totalBytes:number}):Promise<unknown>
+  describe?(targetNativeSessionId:string,referenceId:string):Promise<unknown>
+  settleRead?(targetNativeSessionId:string,referenceId:string,requestId:string,delivery:'returned'|'failed'):Promise<unknown>
+  read(input:{targetNativeSessionId:string;referenceId:string;executionId:string;requestId?:string;cursor?:string;query?:string;view?:'selected-turn';maxBytes:number;totalBytes:number}):Promise<unknown>
   endExecution?(targetNativeSessionId:string,executionId:string):Promise<unknown>
 }
 export function upstreamHost(ctx:Context):UpstreamHost {
@@ -42,11 +45,29 @@ export async function inspectUpstream(ctx:Context,item:ReferenceItem):Promise<vo
     throw new Error('引用气泡与 Maintenance 中的固定来源不一致，请重新选择')
 }
 
+/** Resolve the saved immutable reference through the target-scoped host, never a fresh capture. */
+export async function describeGraphUpstream(ctx:Context,targetSessionId:string,profileId:string,referenceId:string) {
+  const host=upstreamHost(ctx)
+  if (!host.describe) throw new Error('Maintenance 尚未提供主干图引用接入，请更新匹配的适配器')
+  const value=z.object({sourceNativeSessionId:z.string().min(1),record:z.object({
+    referenceId:z.literal(referenceId),sourceAnchorId:z.string().min(1),sourceVersionId:z.string().min(1),
+    cutoffEventId:z.string().min(1),sourceTitle:z.string(),selectedText:z.string(),state:z.enum(['pending','sent']),
+  })}).parse(await host.describe(targetSessionId,referenceId))
+  const record=value.record
+  const source:DshMessageReferenceSource={sourceType:'dsh-message',selectedText:record.selectedText,
+    locator:{profileId,sessionId:value.sourceNativeSessionId,messageId:record.sourceAnchorId,anchorId:record.sourceAnchorId,
+      role:'assistant',occurrence:0,selectedTextHash:selectedTextHash(record.selectedText),
+      upstream:{kind:'fixed-upstream',referenceId,sourceTitle:record.sourceTitle,sourceVersionId:record.sourceVersionId,
+        cutoffEventId:record.cutoffEventId,targetSessionId}}}
+  return {source,state:record.state}
+}
+
 export async function prepareInitialUpstream(ctx: Context, item: ReferenceItem, executionId: string, maxBytes: number, totalBytes: number) {
   const ref = upstreamOf(item)
   if (!ref) throw new Error('引用没有固定上游来源')
+  const host = upstreamHost(ctx), requestId=randomUUID()
   const result = await upstreamHost(ctx).read({targetNativeSessionId:ref.targetSessionId,referenceId:ref.referenceId,
-    executionId,view:'selected-turn',maxBytes,totalBytes})
+    executionId,requestId,view:'selected-turn',maxBytes:host.settleRead?Math.max(1024,maxBytes-192):maxBytes,totalBytes})
   if (Buffer.byteLength(JSON.stringify(result)) > maxBytes) throw new Error('首轮上下文超过已预留额度')
   const page = z.object({
     referenceId:z.literal(ref.referenceId), sourceVersionId:z.literal(ref.sourceVersionId), cutoffEventId:z.literal(ref.cutoffEventId),
@@ -54,9 +75,12 @@ export async function prepareInitialUpstream(ctx: Context, item: ReferenceItem, 
     hasMore:z.boolean(), selectedTurn:z.object({complete:z.boolean(),
       omittedIntermediateItems:z.number().int().nonnegative().optional(),detailsCursor:z.string().max(2048).optional()}),
   }).parse(result)
-  return PreparedUpstreamContextSchema.parse({kind:'selected-turn',sourceVersionId:page.sourceVersionId,
+  const prepared=PreparedUpstreamContextSchema.parse({kind:'selected-turn',sourceVersionId:page.sourceVersionId,
     cutoffEventId:page.cutoffEventId,items:page.items,turnComplete:page.selectedTurn.complete,
     nextCursor:page.nextCursor,hasMore:page.hasMore,
     ...(page.selectedTurn.omittedIntermediateItems === undefined ? {} : {omittedIntermediateItems:page.selectedTurn.omittedIntermediateItems}),
-    ...(page.selectedTurn.detailsCursor === undefined ? {} : {detailsCursor:page.selectedTurn.detailsCursor})})
+    ...(page.selectedTurn.detailsCursor === undefined ? {} : {detailsCursor:page.selectedTurn.detailsCursor}),
+    ...(host.settleRead ? {disclosureRequestId:requestId} : {})})
+  if(Buffer.byteLength(JSON.stringify(prepared))>maxBytes)throw new Error('首轮上下文超过已预留额度')
+  return prepared
 }
