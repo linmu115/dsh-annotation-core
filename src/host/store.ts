@@ -274,6 +274,8 @@ export interface SessionAggregate {
   readonly pendingDiscardJobs: Readonly<Record<string, PendingDiscardJob>>
   readonly committedDeleteJobs: Readonly<Record<string, CommittedDeleteJob>>
   readonly deletedReferences: Readonly<Record<string, DeletedReferenceRecord>>
+  /** Authority-backed read grants; these are not fabricated submission receipts. */
+  readonly restoredGraphReferences?: Readonly<Record<string, ReferenceItem>>
 }
 
 export const SessionAggregateSchema = z.object({
@@ -291,6 +293,7 @@ export const SessionAggregateSchema = z.object({
   pendingDiscardJobs: z.record(z.string(), PendingDiscardJobSchema).default({}),
   committedDeleteJobs: z.record(z.string(), CommittedDeleteJobSchema).default({}),
   deletedReferences: z.record(z.string(), DeletedReferenceRecordSchema).default({}),
+  restoredGraphReferences: z.record(z.string(), DshReferenceItemSchema).default({}),
 }).strict() as unknown as z.ZodType<SessionAggregate>
 
 export const annotationCoreDomainSpec = defineDomain({
@@ -802,6 +805,58 @@ export class AnnotationStore {
     return clone(this.readStored(sessionId).deletedReferences[referenceId])
   }
 
+  async restoreGraphReference(sessionId: string, source: ReferenceSource): Promise<void> {
+    const parsed = ReferenceSourceSchema.parse(source)
+    if (parsed.sourceType !== 'dsh-message' || parsed.locator.upstream?.targetSessionId !== sessionId)
+      throw new Error('Restored graph reference does not belong to this conversation')
+    const referenceId = parsed.locator.upstream.referenceId
+    const item = ReferenceItemSchema.parse({ ...parsed, referenceId, number: 1, userComment: '', backlinkState: 'not-required' }) as ReferenceItem
+    await this.mutate(sessionId, aggregate => {
+      if (aggregate.deletedReferences[referenceId]) throw new Error('这条图连接已解除，请刷新图谱')
+      const existing = aggregate.restoredGraphReferences?.[referenceId]
+      if (existing) {
+        if (canonicalSha256(existing) !== canonicalSha256(item)) throw new Error('Restored graph reference identity changed')
+        return {changed: false, aggregate, value: undefined}
+      }
+      if ([aggregate.pending, ...aggregate.sentSets].some(set => set?.items.some(value => value.referenceId === referenceId)))
+        return {changed: false, aggregate, value: undefined}
+      return {changed: true, value: undefined, aggregate: {...aggregate, revision: aggregate.revision + 1,
+        restoredGraphReferences: {...aggregate.restoredGraphReferences, [referenceId]: item}}}
+    })
+  }
+
+  listRestoredGraphSets(sessionId: string): readonly ReferenceSet[] {
+    const aggregate = this.readStored(sessionId)
+    return Object.values(aggregate.restoredGraphReferences ?? {}).filter(item => !aggregate.deletedReferences[item.referenceId]).map(item => ({
+      schemaVersion: 1, setId: `graph-restored:${item.referenceId}`, profileId: aggregate.profileId, sessionId,
+      state: 'sent', revision: 0, createdAt: 0, items: [clone(item)],
+    }))
+  }
+
+  /** Apply a positive authoritative revocation without inventing an outbound delete job. */
+  async reconcileRevokedGraphReference(sessionId: string, referenceId: string): Promise<void> {
+    await this.mutate(sessionId, aggregate => {
+      if (aggregate.deletedReferences[referenceId]) return {changed: false, aggregate, value: undefined}
+      const set = [aggregate.pending, ...aggregate.sentSets].find(value => value?.items.some(item => item.referenceId === referenceId))
+      const item = set?.items.find(value => value.referenceId === referenceId) ?? aggregate.restoredGraphReferences?.[referenceId]
+      if (item?.sourceType !== 'dsh-message' || !item.locator.upstream) return {changed: false, aggregate, value: undefined}
+      // An admitted batch must finish its normal reconciliation before changing its draft.
+      if (set === aggregate.pending && set?.state === 'committing') return {changed: false, aggregate, value: undefined}
+      const strip = (value: ReferenceSet) => ({...value, revision: value.revision + 1, items: value.items.filter(i => i.referenceId !== referenceId)})
+      let pending = aggregate.pending
+      if (pending?.items.some(i => i.referenceId === referenceId)) { pending = strip(pending); if (!pending.items.length) pending = undefined }
+      const restoredGraphReferences = {...aggregate.restoredGraphReferences}; delete restoredGraphReferences[referenceId]
+      const backlinkJobs = {...aggregate.backlinkJobs}
+      for (const key of Object.keys(backlinkJobs)) if (backlinkJobs[key]?.referenceId === referenceId) delete backlinkJobs[key]
+      return {changed: true, value: undefined, aggregate: {...aggregate, revision: aggregate.revision + 1, pending,
+        sentSets: aggregate.sentSets.map(value => value.items.some(i => i.referenceId === referenceId) ? strip(value) : value).filter(value => value.items.length),
+        restoredGraphReferences, backlinkJobs, deletedReferences: {...aggregate.deletedReferences, [referenceId]: {
+          referenceId, setId: set?.setId ?? `graph-restored:${referenceId}`, scope: set !== undefined && set === aggregate.pending ? 'pending' : 'sent',
+          sourceType: 'dsh-message', deletedAt: Date.now(),
+        }}}}
+    })
+  }
+
   resolveReferenceLink(sessionId: string, referenceId: string): ReferenceLinkSummary | null {
     if (!referenceId.trim() || referenceId.length > 256) throw new TypeError('Invalid reference ID')
     const aggregate = this.readStored(sessionId)
@@ -813,6 +868,7 @@ export class AnnotationStore {
     for (const set of aggregate.sentSets) {
       if (set.items.some(item => item.referenceId === referenceId)) return { setId: set.setId, referenceId, state: set.state }
     }
+    if (aggregate.restoredGraphReferences?.[referenceId]) return {setId: `graph-restored:${referenceId}`, referenceId, state: 'sent'}
     return null
   }
 

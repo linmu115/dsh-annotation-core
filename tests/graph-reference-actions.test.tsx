@@ -30,6 +30,7 @@ function fixture() {
   core = new AnnotationCoreClientService(ctx, { profileId: 'web' })
   const remote = {
     describeGraphReference:vi.fn(async (_referenceId:string)=>({ok:true,value:{source,state:'pending' as 'pending'|'sent'}})),
+    restoreGraphReference:vi.fn(async (_referenceId:string)=>{await store.restoreGraphReference('target',source);return {ok:true,value:undefined}}),
     captureUpstream: vi.fn(async () => ({ ok: true, value: source })),
     readPending: vi.fn(async () => ({ ok: true, value: store.readPending('target') })),
     addReference: vi.fn(async (input: Parameters<AnnotationStore['addReference']>[1]) => ({ ok: true, value: await store.addReference('target', input) })),
@@ -58,10 +59,16 @@ describe('graph reference actions', () => {
       expect(f.core.features).toContain('session-main-graph-v2')
     } finally {window.removeEventListener('dsh-session-references-changed',notice)}
   })
-  it('does not silently rebind a sent reference whose local admission was lost',async()=>{
+  it('restores authority-backed reads without rebinding a sent reference or fabricating an admission',async()=>{
     const f=fixture()
     f.remote.describeGraphReference.mockResolvedValueOnce({ok:true,value:{source,state:'sent'}})
-    await expect(f.core.prepareGraphReferences('target',['relation'])).rejects.toThrow('缺少对应提交记录')
+    await expect(f.core.prepareGraphReferences('target',['relation'])).resolves.toEqual({preparedCount:0})
+    expect(f.remote.restoreGraphReference).toHaveBeenCalledWith('relation')
+    expect(f.store.listRestoredGraphSets('target')[0]?.items[0]).toMatchObject({locator:{upstream:{sourceVersionId:'fixed-version',cutoffEventId:'completed-reply'}}})
+    expect(f.store.read('target').admissions).toEqual({})
+    expect(f.store.read('target').submissionJournal).toEqual({})
+    expect(f.store.readPending('target').pending).toBeUndefined()
+    expect(f.store.listSentForSession('target')).toEqual([])
     expect(f.remote.addReference).not.toHaveBeenCalled()
   })
   it('rejects a revoked source or navigation change before adopting the saved graph reference',async()=>{

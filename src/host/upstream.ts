@@ -16,6 +16,7 @@ export interface UpstreamHost {
   inspect(targetNativeSessionId:string,referenceId:string): Promise<{selectedText:string;sourceVersionId:string;cutoffEventId:string}>
   bind(targetNativeSessionId:string,referenceId:string,targetMessageId:string|null): Promise<unknown>
   describe?(targetNativeSessionId:string,referenceId:string):Promise<unknown>
+  status?(targetNativeSessionId:string,referenceId:string):Promise<{referenceId:string;state:'pending'|'sent'|'revoked'}>
   settleRead?(targetNativeSessionId:string,referenceId:string,requestId:string,delivery:'returned'|'failed'):Promise<unknown>
   read(input:{targetNativeSessionId:string;referenceId:string;executionId:string;requestId?:string;cursor?:string;query?:string;view?:'selected-turn';maxBytes:number;totalBytes:number}):Promise<unknown>
   endExecution?(targetNativeSessionId:string,executionId:string):Promise<unknown>

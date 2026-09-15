@@ -33,9 +33,18 @@ export class ReferenceSessionStore {
   private disposed = false
   private polling = false
   private retryTimer: ReturnType<typeof setTimeout> | undefined
+  private readonly authorityTimer: ReturnType<typeof setInterval> | undefined
+  private readonly authorityRefresh = () => { if (!this.disposed) void this.refresh() }
 
   constructor(readonly remote: AnnotationCoreRemoteNamespace) {
     this.initial = this.start()
+    if (typeof window !== 'undefined') {
+      window.addEventListener('dsh-session-references-changed', this.authorityRefresh)
+      window.addEventListener('focus', this.authorityRefresh)
+      this.authorityTimer = setInterval(() => {
+        if (document.visibilityState === 'visible' && this.snapshot.pending?.items.some(item => item.sourceType === 'dsh-message' && item.locator.upstream)) this.authorityRefresh()
+      }, 10_000)
+    }
   }
 
   getSnapshot = (): ReferenceSessionSnapshot => this.snapshot
@@ -129,6 +138,11 @@ export class ReferenceSessionStore {
     this.disposed = true
     this.abort.abort()
     if (this.retryTimer !== undefined) clearTimeout(this.retryTimer)
+    if (this.authorityTimer !== undefined) clearInterval(this.authorityTimer)
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('dsh-session-references-changed', this.authorityRefresh)
+      window.removeEventListener('focus', this.authorityRefresh)
+    }
     this.listeners.clear()
   }
 }

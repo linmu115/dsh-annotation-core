@@ -7,6 +7,7 @@ import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { ReferenceSource } from '../protocol/index.ts'
 import type { AnnotationStore } from '../host/store.ts'
 import { AggregateRevisionConflictError } from '../host/store.ts'
+import { reconcileGraphRevocations } from '../host/graph-reference-recovery.ts'
 import type { BacklinkOutbox } from '../host/backlink-outbox.ts'
 import type { PendingDiscardOutbox } from '../host/pending-discard-outbox.ts'
 import type { CommittedDeleteOutbox } from '../host/committed-delete-outbox.ts'
@@ -88,7 +89,8 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
     super(ctx, 'annotationCore')
   }
 
-  readPending(agent: Agent): { revision: number; pending: ReturnType<AnnotationStore['readPending']>['pending'] | null } {
+  async readPending(agent: Agent) {
+    await reconcileGraphRevocations(this.ctx, this.store, agent.id, true)
     const state = this.store.readPending(agent.id)
     return { revision: state.revision, pending: state.pending ?? null }
   }
@@ -105,6 +107,15 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
   }
   describeGraphReference(agent:Agent,referenceId:string){
     return describeGraphUpstream(this.ctx,agent.id,this.store.read(agent.id).profileId,referenceId)
+  }
+
+  async restoreGraphReference(agent: Agent, referenceId: string): Promise<void> {
+    const described = await describeGraphUpstream(this.ctx, agent.id, this.store.read(agent.id).profileId, referenceId)
+    if (described.state !== 'sent') throw new Error('引用状态已经变化，请刷新图谱后重试')
+    await this.store.restoreGraphReference(agent.id, described.source)
+    // Close the revocation race without rebinding or generating an admission record.
+    await reconcileGraphRevocations(this.ctx, this.store, agent.id, false, [referenceId])
+    if (this.store.resolveReferenceLink(agent.id, referenceId)?.state === 'deleted') throw new Error('这条图连接已解除，请刷新图谱')
   }
 
   async addReference(agent: Agent, request: AddReferenceRequest) {
@@ -149,6 +160,12 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
   }
 
   async deleteReferenceLink(agent: Agent, request: DeleteReferenceLinkRequest) {
+    const restored = this.store.listRestoredGraphSets(agent.id).find(set => set.setId === request.setId && set.items.some(item => item.referenceId === request.referenceId))
+    if (restored) {
+      await upstreamHost(this.ctx).bind(agent.id, request.referenceId, null)
+      await this.store.reconcileRevokedGraphReference(agent.id, request.referenceId)
+      return {revision: this.store.read(agent.id).revision, deleted: true, scope: 'sent' as const}
+    }
     const result = await this.store.deleteReferenceLink(agent.id, request)
     if (result.scope === 'pending') this.discardOutbox?.kick(agent.id)
     else this.deleteOutbox?.kick(agent.id)
@@ -167,7 +184,8 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
     return this.store.readSentSet(agent.id, setId) ?? null
   }
 
-  listSentForSession(agent: Agent) {
+  async listSentForSession(agent: Agent) {
+    await reconcileGraphRevocations(this.ctx, this.store, agent.id)
     return this.store.listSentForSession(agent.id)
   }
 

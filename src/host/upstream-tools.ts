@@ -5,6 +5,7 @@ import { availableReferenceSets } from './reference-tools.ts'
 import { UpstreamToolBudgets } from './upstream-budget.ts'
 import { upstreamHost, upstreamOf } from './upstream.ts'
 import { randomUUID } from 'node:crypto'
+import { reconcileGraphRevocations } from './graph-reference-recovery.ts'
 
 interface ManagedRuntimeSupport {
   readonly apiVersion: number
@@ -30,6 +31,7 @@ export function registerUpstreamTools(ctx: Context, store: AnnotationStore, budg
           async execute(args, exec) {
             const agent = exec.agent
             if (!agent) throw new Error('A conversation is required')
+            await reconcileGraphRevocations(ctx, store, agent.session.id, false, [args.referenceId])
             const set = availableReferenceSets(store, agent).find(candidate => candidate.items.some(item => item.referenceId === args.referenceId))
             const item = set?.items.find(item => item.referenceId === args.referenceId)
             const upstream = item && upstreamOf(item)
@@ -47,6 +49,7 @@ export function registerUpstreamTools(ctx: Context, store: AnnotationStore, budg
                 ...(args.cursor ? { cursor: args.cursor } : {}), ...(search ? { query: args.query! } : {}),
               })
               exec.signal.throwIfAborted()
+              await reconcileGraphRevocations(ctx, store, agent.session.id, false, [args.referenceId])
               if (!availableReferenceSets(store, agent).some(candidate => candidate.items.some(item => item.referenceId === args.referenceId)))
                 throw new Error('引用在读取期间已撤销')
               const candidate=JSON.stringify(result)

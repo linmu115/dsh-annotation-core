@@ -18,6 +18,7 @@ import { collectReferenceDocuments } from '../src/domain/budget.ts'
 import type { ReferenceSet } from '../src/domain/model.ts'
 import { captureUpstream, describeGraphUpstream } from '../src/host/upstream.ts'
 import { DshMessageCaptureSchema } from '../src/protocol/index.ts'
+import { reconcileGraphRevocations } from '../src/host/graph-reference-recovery.ts'
 
 const digest='sha256:'+'a'.repeat(64)
 const source:ReferenceSource={sourceType:'dsh-message',selectedText:'selected',locator:{profileId:'web',sessionId:'source',anchorId:'answer',
@@ -46,6 +47,34 @@ async function fixture(sent=true){
   return {ctx,store,bridge,registry,agent,events}
 }
 describe('fixed upstream annotation lifecycle and model access',()=>{
+  it('keeps a committing batch intact until rollback, then applies an authoritative revocation',async()=>{
+    const f=await fixture(false)
+    Object.assign(f.bridge,{status:async()=>({referenceId:'reference',state:'revoked'})})
+    await f.store.beginAnnotatedAdmission('target',{expectedRevision:1,clientSubmissionId:'submission',requestDigest:digest,setId:'set',referenceRevision:1,createdAt:2})
+    await reconcileGraphRevocations(f.ctx,f.store,'target')
+    expect(f.store.readPending('target').pending?.state).toBe('committing')
+    expect(f.store.readDeletedReference('target','reference')).toBeUndefined()
+    await f.store.markPendingCommitFailed('target',{expectedRevision:2,setId:'set'})
+    await f.store.restorePendingCommit('target',{expectedRevision:3,setId:'set'})
+    await reconcileGraphRevocations(f.ctx,f.store,'target')
+    expect(f.store.readPending('target').pending).toBeUndefined()
+    f.store.close()
+  })
+  it('does not deliver restored graph context revoked during a read',async()=>{
+    const f=await fixture(false), restored=new AnnotationStore(AnnotationStore.memoryTable(),{profileId:'web'}), registered:any[]=[]
+    await restored.restoreGraphReference('target',source)
+    let state='sent'
+    Object.assign(f.bridge,{status:async()=>({referenceId:'reference',state})})
+    const page=await f.bridge.read()
+    f.bridge.read.mockImplementationOnce(async()=>{state='revoked';return page})
+    f.ctx.provide('tools',{register:(tool:any)=>registered.push(tool)} as never)
+    registerUpstreamTools(f.ctx,restored,new UpstreamToolBudgets())
+    await vi.waitFor(()=>expect(registered).toHaveLength(2))
+    await expect(registered[0].execute({referenceId:'reference'},{agent:f.agent,signal:new AbortController().signal})).rejects.toThrow('读取期间已撤销')
+    expect(f.bridge.settleRead).toHaveBeenLastCalledWith('target','reference',expect.any(String),'failed')
+    expect(availableReferenceSets(restored,f.agent)).toEqual([])
+    restored.close();f.store.close()
+  })
   it('resolves the recorded source identity without capturing or extending its version',async()=>{
     const ctx=new Context(),describe=vi.fn(async()=>({sourceNativeSessionId:'native-source',record:{
       referenceId:'ref',sourceAnchorId:'real-message-id',sourceVersionId:'old-retained-version',cutoffEventId:'fixed-completed-event',

@@ -114,6 +114,7 @@ export const ANNOTATION_CORE_REMOTE_DESCRIPTORS: readonly InvocationDescriptor[]
   descriptor('captureUpstream',[jsonParameter('request',z.object({capture:DshMessageCaptureSchema,operationId:z.string().min(1).max(256)}).strict())],unknownCodec('dsh-annotation-core#UpstreamSource')),
   descriptor('readPending', [], unknownCodec('dsh-annotation-core#ReadPendingResult')),
   descriptor('describeGraphReference', [jsonParameter('referenceId', z.string().min(1).max(256), 'string')], unknownCodec('dsh-annotation-core#GraphReferenceDescription')),
+  descriptor('restoreGraphReference', [jsonParameter('referenceId', z.string().min(1).max(256), 'string')], voidCodec('void')),
   descriptor('resolveReferenceLink', [jsonParameter('referenceId', z.string().min(1).max(256), 'string')],
     { mode: 'strict', typeSymbol: 'dsh-annotation-core#ReferenceLinkSummary', schema: z.object({
       setId: z.string().min(1), referenceId: z.string().min(1).max(256),

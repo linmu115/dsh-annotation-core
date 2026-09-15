@@ -9,11 +9,15 @@ import type { HostSourceRegistry } from './source-registry.ts'
 import { upstreamOf } from './upstream.ts'
 import { UpstreamToolBudgets, type NativeUpstreamUsage } from './upstream-budget.ts'
 import { registerUpstreamTools } from './upstream-tools.ts'
+import { reconcileGraphRevocations } from './graph-reference-recovery.ts'
 
 /** Read submitted snapshots and the calling execution's exact prepared batch. */
 export function availableReferenceSets(store: AnnotationStore, agent: Agent): readonly ReferenceSet[] {
   const sessionId = agent.session.id
   const sets = new Map(store.listSentForSession(sessionId).map(set => [set.setId, set]))
+  for (const set of store.listRestoredGraphSets(sessionId)) {
+    if (![...sets.values()].some(existing => existing.items.some(item => item.referenceId === set.items[0]?.referenceId))) sets.set(set.setId, set)
+  }
   for (const event of agent.session.snapshotEvents().slice(0, agent.session.inheritedEventCount)) {
     if (event.type !== 'user/message' || event.data.source.kind !== 'dsh-annotation') continue
     const source = event.data.source
@@ -85,11 +89,14 @@ export function registerReferenceTools(ctx: Context, store: AnnotationStore, sou
   ctx.inject(['tools'], toolCtx => {
     const list = defineTool({
       name: 'dsh_reference_list',
-      description: 'List references submitted in this conversation. Unsent drafts are excluded.',
+      description: 'List references submitted in this conversation and restored upstream sources of its graph. Unsent drafts are excluded. Use dsh_upstream_read to read the fixed context of a graph source.',
       parameters: { after: { type: 'string', description: 'Opaque nextCursor returned by the preceding list page.' } },
       output: { schema: { type: 'string' }, render: (_args, text) => [{ type: 'text', text }] },
       async execute(args, exec) {
         if (exec.agent === undefined) throw new Error('A conversation is required')
+        const pageCandidates = availableReferenceSets(store, exec.agent).flatMap(set => set.items.map(item => ({setId:set.setId, referenceId:item.referenceId})))
+        const candidateStart = args.after ? pageCandidates.findIndex(item => `${item.setId}:${item.referenceId}` === args.after) + 1 : 0
+        await reconcileGraphRevocations(ctx, store, exec.agent.session.id, false, pageCandidates.slice(candidateStart, candidateStart + 20).map(item => item.referenceId))
         const all = availableReferenceSets(store, exec.agent).flatMap(set => set.items.map(item => ({
           setId: set.setId, referenceId: item.referenceId, sourceType: item.sourceType,
           selectedText: item.selectedText.slice(0, 180), backlinkState: item.backlinkState,
@@ -125,6 +132,7 @@ export function registerReferenceTools(ctx: Context, store: AnnotationStore, sou
       output: { schema: { type: 'string' }, render: (_args, text) => [{ type: 'text', text }] },
       async execute(args, exec) {
         if (exec.agent === undefined) throw new Error('A conversation is required')
+        await reconcileGraphRevocations(ctx, store, exec.agent.session.id, false, [args.referenceId])
         const set = availableReferenceSets(store, exec.agent).find(set => set.setId === args.setId)
         const item = set?.items.find(reference => reference.referenceId === args.referenceId)
         if (item === undefined) throw new Error('Reference is unavailable in this conversation')

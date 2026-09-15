@@ -126,7 +126,13 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
         beforeCommit()
         if(link?.state==='deleted')throw new Error('这条图连接已解除，请刷新图谱')
         if(link)continue
-        if(described.state==='sent')throw new Error('引用已发送，但当前实例缺少对应提交记录；请先恢复会话引用数据')
+        if(described.state==='sent') {
+          if (!remote.restoreGraphReference) throw new Error('请更新匹配的引用插件以恢复图谱上下文')
+          unwrapRemote(await remote.restoreGraphReference(referenceId))
+          beforeCommit()
+          notifyReferenceChange(target)
+          continue
+        }
         const result=await this.addReference(target,described.source,{operationId:`graph-adopt:${referenceId}`,referenceId,beforeCommit})
         if(result.created)preparedCount++
       }
