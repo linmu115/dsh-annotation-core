@@ -42,6 +42,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   let discardOutbox!: PendingDiscardOutbox
   let deleteOutbox!: CommittedDeleteOutbox
   const sources = new HostSourceRegistry(ctx, {
+    referenceDirectory: opened.store.referenceDirectory,
     listReferences: agent => availableReferenceSets(opened.store, agent),
     deleteReferenceLink: async (sessionId, setId, referenceId) => {
       const state = opened.store.readPending(sessionId)

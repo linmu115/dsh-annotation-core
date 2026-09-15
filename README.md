@@ -1,6 +1,6 @@
 # dsh-annotation-core
 
-为 DSH 插件提供统一注释气泡、跨会话引用、可靠发送和历史注释详情。当前源码版本 **0.3.12-rc2.9**，针对官方 **DSH 0.1.5-rc.2 / web profile**。这里的版本说明不代表已发布到 npm；使用本分支功能时请构建并安装匹配的本地包。
+为 DSH 插件提供统一注释气泡、跨会话引用、可靠发送和历史注释详情。当前源码版本 **0.3.12-rc2.10**，针对官方 **DSH 0.1.5-rc.2 / web profile**。这里的版本说明不代表已发布到 npm；使用本分支功能时请构建并安装匹配的本地包。
 
 [English](README_EN.md) · 中文
 
@@ -74,7 +74,7 @@ pnpm pack
 `build` 生成 Host、Client 和类型声明；`test`、`pack` 前均自动构建。将生成的包安装到所选实例的 `web` profile，例如：
 
 ```bash
-dsh plugin --profile web add "file:/absolute/path/dsh-annotation-core-0.3.12-rc2.9.tgz"
+dsh plugin --profile web add "file:/absolute/path/dsh-annotation-core-0.3.12-rc2.10.tgz"
 ```
 
 随后安装匹配的 Sidechat、Sticker 或 ThoughtDAG，完整重启目标 `dsh web` 并刷新页面。Launcher/Maintenance 管理的实例应通过该实例的部署流程安装，保证版本、运行绑定和实际加载位置一致。源码构建或 GitHub 提交本身不会更新运行实例，无版本号的 registry 安装也不能保证取得此候选代码。
@@ -82,6 +82,8 @@ dsh plugin --profile web add "file:/absolute/path/dsh-annotation-core-0.3.12-rc2
 ## 插件开发接口
 
 运行时先协商能力，再调用 [Client API](src/public/client-api.ts) 或 [Host API](src/public/host-api.ts)。
+
+宿主可选接口 `annotationCoreHost.referenceDirectory`（`protocolVersion: 1`）提供会话及单会话引用的分页只读目录，每页最多 50 条；摘录最多 4000 字符、评论最多 2000 字符。订阅仅在持久提交后通知会话 ID 和修订号，不导出完整存储、笔记快照或提交日志。配套 Maintenance 启用 `annotation-records` 后会补齐已有目录并持续同步，失败自动重试；只有明确删除记录会同步为删除，条目缺席不表示撤销。原生上游关系在目录中去重，恢复的图引用授权不会重复导出。详见[轻量目录与同步说明](docs/changes/2026-09-15-reference-directory-mirror.md)。
 
 | 能力 | 入口 |
 |---|---|

@@ -21,6 +21,7 @@ export type SourcePreparationErrorCode =
   | 'protocol-mismatch'
 
 export interface HostSourceRegistryOptions {
+  readonly referenceDirectory?: AnnotationCoreHost['referenceDirectory']
   readonly listReferences?: NonNullable<AnnotationCoreHost['listReferences']>
   readonly deleteReferenceLink?: (
     sessionId: string,
@@ -37,6 +38,7 @@ export class SourcePreparationError extends Error {
 }
 
 export class HostSourceRegistry extends Service implements AnnotationCoreHost {
+  get referenceDirectory() { return this.options.referenceDirectory }
   readonly inputAcceptance = new InputAcceptanceRegistry()
   private readonly adapters = new Map<SourceType, HostSourceAdapter>()
   private readonly adapterListeners = new Set<(type: SourceType) => void>()

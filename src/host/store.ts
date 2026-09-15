@@ -26,6 +26,8 @@ import {
   SourceSnapshotSchema,
 } from '../protocol/index.ts'
 import type { ReferenceSource } from '../protocol/index.ts'
+import type { AnnotationReferenceDirectory } from '../public/host-api.ts'
+import { referenceDirectoryChanged, referenceDirectoryEntries, referenceDirectoryRevision, referenceDirectorySessions } from './reference-directory.ts'
 
 const NonEmptyStringSchema = z.string().min(1)
 const NonNegativeIntegerSchema = z.number().int().nonnegative()
@@ -264,6 +266,8 @@ export interface SessionAggregate {
   readonly profileId: string
   readonly sessionId: string
   readonly revision: number
+  /** Last aggregate revision that changed the bounded public reference directory. */
+  readonly directoryRevision?: number | undefined
   readonly pending?: ReferenceSet | undefined
   readonly sentSets: readonly ReferenceSet[]
   readonly operations: Readonly<Record<string, ReferenceOperationRecord>>
@@ -283,6 +287,7 @@ export const SessionAggregateSchema = z.object({
   profileId: NonEmptyStringSchema,
   sessionId: NonEmptyStringSchema,
   revision: NonNegativeIntegerSchema,
+  directoryRevision: NonNegativeIntegerSchema.optional(),
   pending: ReferenceSetSchema.optional(),
   sentSets: z.array(ReferenceSetSchema),
   operations: z.record(z.string(), ReferenceOperationRecordSchema),
@@ -435,12 +440,25 @@ function abortError(): DOMException {
 }
 
 export class AnnotationStore {
+  readonly referenceDirectory: AnnotationReferenceDirectory
+  private readonly directoryListeners = new Set<Parameters<AnnotationReferenceDirectory['subscribe']>[0]>()
   private readonly tails = new Map<string, Promise<void>>()
   private readonly waiters = new Map<string, Set<Waiter>>()
   private disposed = false
 
   constructor(readonly table: SessionTable, readonly options: AnnotationStoreOptions) {
     if (options.profileId.trim().length === 0) throw new TypeError('profileId must not be empty')
+    this.referenceDirectory = {
+      protocolVersion: 1,
+      listSessions: async (input = {}) => referenceDirectorySessions(options.profileId,
+        this.sessionIds().map(nativeSessionId => ({ nativeSessionId, sourceRevision: referenceDirectoryRevision(this.readStored(nativeSessionId)) })), input),
+      listEntries: async input => referenceDirectoryEntries(this.readStored(input.nativeSessionId), input),
+      subscribe: listener => {
+        this.assertOpen()
+        this.directoryListeners.add(listener)
+        return () => { this.directoryListeners.delete(listener) }
+      },
+    }
   }
 
   static memoryTable(): SessionTable {
@@ -1704,6 +1722,7 @@ export class AnnotationStore {
       }
     }
     this.waiters.clear()
+    this.directoryListeners.clear()
   }
 
   private pendingSummary(aggregate: SessionAggregate): { revision: number; pendingCount: number } {
@@ -1727,7 +1746,11 @@ export class AnnotationStore {
       const mutation = operation(current)
       result = mutation.value
       if (!mutation.changed) return
-      const validated = SessionAggregateSchema.parse(mutation.aggregate)
+      // Internal journal/admission/outbox mutations do not invalidate directory pages.
+      // Compare before schema parsing, which copies readonly business collections.
+      const directoryChanged = referenceDirectoryChanged(current, mutation.aggregate)
+      const directoryRevision = directoryChanged ? mutation.aggregate.revision : referenceDirectoryRevision(current)
+      const validated = SessionAggregateSchema.parse({ ...mutation.aggregate, directoryRevision })
       if (stored === undefined) {
         await this.table.put(key, validated)
       } else {
@@ -1738,7 +1761,7 @@ export class AnnotationStore {
           return validated
         })
       }
-      this.notify(key, validated)
+      this.notify(key, validated, directoryChanged)
     })
     const tail = work.then(() => undefined, () => undefined)
     this.tails.set(key, tail)
@@ -1747,7 +1770,13 @@ export class AnnotationStore {
     })
   }
 
-  private notify(key: string, aggregate: SessionAggregate): void {
+  private notify(key: string, aggregate: SessionAggregate, directoryChanged: boolean): void {
+    if (directoryChanged) {
+      for (const listener of this.directoryListeners) {
+        try { listener({ nativeSessionId: aggregate.sessionId, sourceRevision: referenceDirectoryRevision(aggregate) }) }
+        catch { /* A mirror observer cannot fail an already durable Core mutation. */ }
+      }
+    }
     const waiters = this.waiters.get(key)
     if (waiters === undefined) return
     for (const waiter of [...waiters]) {

@@ -1,6 +1,6 @@
 # dsh-annotation-core
 
-Shared annotation bubbles, cross-session references, reliable submission and historical annotation details for DSH plugins. Current source version: **0.3.12-rc2.9**, targeting official **DSH 0.1.5-rc.2 / the web profile**. This does not imply an npm release; build and install matching local packages to use this branch.
+Shared annotation bubbles, cross-session references, reliable submission and historical annotation details for DSH plugins. Current source version: **0.3.12-rc2.10**, targeting official **DSH 0.1.5-rc.2 / the web profile**. This does not imply an npm release; build and install matching local packages to use this branch.
 
 English · [中文](README.md)
 
@@ -74,7 +74,7 @@ pnpm pack
 Build emits Host/Client bundles and declarations; both test and pack run a build first. Install the generated archive into the intended instance's web profile, for example:
 
 ```bash
-dsh plugin --profile web add "file:/absolute/path/dsh-annotation-core-0.3.12-rc2.9.tgz"
+dsh plugin --profile web add "file:/absolute/path/dsh-annotation-core-0.3.12-rc2.10.tgz"
 ```
 
 Install matching Sidechat, Sticker or ThoughtDAG, restart the target `dsh web` and refresh the page. Launcher/Maintenance-managed instances should use their own deployment workflow to keep package versions, runtime bindings and loaded locations consistent. Building or pushing source does not update a running instance. An unversioned registry install does not guarantee this candidate code.
@@ -82,6 +82,8 @@ Install matching Sidechat, Sticker or ThoughtDAG, restart the target `dsh web` a
 ## Consumer API
 
 Negotiate features before calling the [Client API](src/public/client-api.ts) or [Host API](src/public/host-api.ts).
+
+The optional host capability `annotationCoreHost.referenceDirectory` (`protocolVersion: 1`) exposes read-only session and reference pages, with at most 50 entries per page, 4000 characters per excerpt and 2000 per comment. Subscribers receive only the session ID and revision after durable commits; full aggregates, note snapshots and submission journals are excluded. With `annotation-records` enabled, the matching Maintenance plugin backfills and continuously mirrors this directory, retrying failed acknowledgements. Only explicit tombstones represent deletion; missing entries do not revoke anything. Native upstream relationships are deduplicated in the directory, and restored graph grants are not exported again. See the [directory and synchronization report](docs/changes/2026-09-15-reference-directory-mirror.md).
 
 | Capability | Entry points |
 |---|---|

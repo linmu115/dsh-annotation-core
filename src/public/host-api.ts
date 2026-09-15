@@ -39,7 +39,49 @@ export interface InputAcceptanceProvider {
   activeInputIds(agent: Agent): readonly string[]
   subscribe?(listener: () => void): () => void
 }
+
+/** Bounded read model for optional host mirrors; this is not a submission API. */
+export interface AnnotationDirectoryEntry {
+  readonly referenceId: string
+  readonly setId: string
+  readonly sourceType: 'dsh-message' | 'obsidian-note'
+  readonly state: 'pending' | 'committing' | 'sent' | 'failed' | 'deleted'
+  readonly selectedText: string
+  readonly userComment: string
+  readonly source: {
+    readonly nativeSessionId?: string
+    readonly title?: string
+    readonly vaultId?: string
+    readonly noteId?: string
+    readonly notePath?: string
+    readonly anchorId?: string
+    readonly upstreamReferenceId?: string
+  }
+  readonly truncated?: boolean
+}
+export interface AnnotationDirectoryQuery {
+  readonly after?: string
+  readonly limit?: number
+  readonly signal?: AbortSignal
+}
+export interface AnnotationReferenceDirectory {
+  readonly protocolVersion: 1
+  listSessions(input?: AnnotationDirectoryQuery): Promise<{
+    readonly items: readonly { readonly nativeSessionId: string; readonly sourceRevision: number }[]
+    readonly nextCursor: string | null
+  }>
+  listEntries(input: AnnotationDirectoryQuery & { readonly nativeSessionId: string }): Promise<{
+    readonly nativeSessionId: string
+    readonly sourceRevision: number
+    readonly items: readonly AnnotationDirectoryEntry[]
+    readonly nextCursor: string | null
+  }>
+  /** Fires after durable visible directory changes; sourceRevision is independent of internal journal/job revisions. */
+  subscribe(listener: (change: { readonly nativeSessionId: string; readonly sourceRevision: number }) => void): () => void
+}
+
 export interface AnnotationCoreHost {
+  readonly referenceDirectory?: AnnotationReferenceDirectory | undefined
   readonly inputAcceptance?: {
     register(provider: InputAcceptanceProvider): () => void
   }
