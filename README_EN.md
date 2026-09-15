@@ -1,71 +1,104 @@
 # dsh-annotation-core
 
-Shared Codex-style annotation bubbles, reliable submission, and durable annotation details for DSH plugins.
-
-`0.3.10-dev.2` uses the public APIs of official DSH RC1, with native input settlement and optional plugin-owned acceptance receipts. Admission failures retain drafts; late backlinks cannot restore deleted relations. No patched host is required.
-
-When the host tools service is available, `dsh_reference_list` and `dsh_reference_read` expose submitted references in the current conversation and its current execution batch. Snapshot reads retain original content; refresh uses the existing source adapter without rewriting submitted input. Forked references expose inherited snapshots without creating backlinks. The optional Runtime Support plugin bridges these tools into selected Codex executions. Neither arbitrary note paths nor model-driven deletion are exposed.
+Shared annotation bubbles, cross-session references, reliable submission and historical annotation details for DSH plugins. Current source version: **0.3.12-rc2.9**, targeting official **DSH 0.1.5-rc.2 / the web profile**. This does not imply an npm release; build and install matching local packages to use this branch.
 
 English · [中文](README.md)
 
-## Compatibility
+Core has no independent sidebar or canvas. Sidechat supplies selection actions, Sticker supplies sticker interactions, and ThoughtDAG supplies the session graph. All share one Core instance through host interfaces, without EAC or a desktop shell. The complete Maintenance/Codex installation must also satisfy its own RC2 host-artifact requirements.
 
-- DeepSeek Harness (official `0.1.2-alpha.1` is the current client baseline, not an installation constraint)
-- Official `web` profile
-- No EAC or desktop-shell dependency
+## Features and usage
 
-This is a foundation plugin. It intentionally has no separate sidebar page or dashboard. Install a consumer plugin before expecting a visible UI.
+### Annotation bubbles
 
-## Installation
+- Bubbles appear above the composer without inserting `@` tokens, quote blocks or hidden placeholders into the visible draft.
+- Open a bubble to inspect the selection, edit an optional comment or delete it. Remaining pending references are renumbered.
+- Sent user messages have an “N annotations” pill; annotation links in model answers reopen the corresponding details.
+- Main, side and embedded composers share the reference state and presentation protocol.
+- Removing a pending Obsidian reference removes its bubble first, then retries source cleanup in the background. Delayed backlinks cannot resurrect deleted relations.
 
-Install in this order:
+### Cross-session references
 
-1. Install the core:
+1. With the matching Sidechat plugin, select text in a **completed assistant reply** and choose cross-session reference. Ordinary annotations still accept user and assistant messages; fixed upstream references require completed assistant replies.
+2. Choose a workspace, then a target conversation. Lists support scrolling and pagination.
+3. Core opens the real target page, waits for its composer and adds a bubble. Existing text and attachments stay intact; nothing is sent automatically.
+4. Write your question and send. The source range ends at the **complete end of the selected reply**. The selection identifies the focus; subsequent source turns are excluded.
 
-   ```bash
-   dsh plugin --profile web add dsh-annotation-core
-   ```
+Initial submission prioritizes the bounded **question and answer containing the selection**. Long turns expose incompleteness and a continuation position; intermediate tool steps have a separate read entry. The model can call `dsh_upstream_read` and `dsh_upstream_search` to retrieve earlier context without asking again for permission to read an authorized source.
 
-2. Install either or both consumer plugins:
+Core does not automatically copy entire upstream histories, recursively expand every reference or create per-turn context backups. Source versions, reply cutoffs, page limits and a shared turn budget constrain reads. Initial material is deducted from the later tool budget. See [initial question/answer context](docs/changes/2026-09-14-initial-upstream-turn.md) and [request capacity and budgets](docs/changes/2026-09-14-system-audit-fixes.md).
 
-   - `dsh-sidechat` for quoting DSH messages into the main or side conversation.
-   - `dsh-session-sticker-board` for stickers, Obsidian note references, and bidirectional links.
+### Durable submission and conflict recovery
 
-3. Fully restart `dsh web`, then refresh the browser.
+Before sending, Core rechecks the authoritative pending revision and target/composer identity. If references change during preparation, bubbles refresh while text, images and files remain available for a manual retry.
 
-When sidechat or sticker-board is installed through DSH Maintenance Engine, the engine checks and installs the matching core version automatically.
+References become sent only after executor acceptance and durable persistence. Lost-response retries inspect the original receipt: identical messages do not send twice or consume file receipts again. Editing text or attachments creates a new submission identity, so an old receipt cannot falsely confirm a new draft. Ordered RC2 images/files, legacy embedded `images` calls and older request digests remain supported. See [submission revision conflicts](docs/changes/2026-09-14-reference-submit-revision.md).
 
-## Usage
+Capacity calculations include history, system instructions, tools, the message, attachments and reserved output. Insufficient capacity preserves the draft. When native Codex usage cannot be verified, preparation uses an explicitly identified conservative mode rather than claiming a measured remaining capacity.
 
-After a consumer adds a reference:
+### Graph continuation, archival and revocation
 
-- References appear as annotation bubbles above the composer; no `@` token, quote block, or internal markup is inserted into the visible draft.
-- Open a bubble to inspect the full selection, edit the optional comment, or remove the reference.
-- Unsent annotations are renumbered after deletion.
-- Deleting a pending Obsidian reference removes the DSH bubble immediately and retries source cleanup in the background without blocking note editing.
-- Sent user messages show an “`N annotations`” pill that reopens immutable details.
-- “Annotation N” links in model answers open the corresponding item.
-- A failed submission keeps the text, images, and annotations in place.
+Opening a ThoughtDAG node can adopt its existing incoming references with their original source versions and reply cutoffs, without recapturing newer history or sending a message. If a lawful sent relationship remains in Maintenance but its local annotation record is missing, Core restores a separate lightweight read grant. It **does not fabricate submission receipts, user messages or sent snapshots**, or bind an old relationship to a new user turn.
+
+When Maintenance archives/deletes either endpoint, or a relationship is explicitly revoked, that reference stops supplying further context. Core reconciles pending bubbles and restored grants against authoritative status; offline or unknown responses do not imply deletion. Submitted messages are not rewritten, and revocation cannot make a model forget material already delivered. Deleting a restored source requires authority acknowledgement; stale graph actions cannot reactivate revoked identities.
+
+See [session graph continuation and disclosure records](docs/changes/2026-09-15-session-main-graph-context.md) and [restoring lawful sent references](docs/changes/2026-09-15-graph-reference-recovery.md). Disclosure records distinguish preparation, delivery and failure, not model understanding.
+
+## Component responsibilities
+
+| Component | Responsibility |
+|---|---|
+| Annotation Core | Bubbles, comments, submission transactions, historical details, target-scoped read tools and reference adoption |
+| Sidechat | Selection popup, cross-session entry and actual forked side conversations |
+| Maintenance / DSH version Adapter | Canonical sessions, stable identities, fixed source reads, authoritative relationships, archival/revocation and disclosure records |
+| Session Sticker / ThoughtDAG | Sticker/session-node interactions, layout and relationships, without a duplicate native transcript store |
+| Obsidian Bridge / Reference Adapter | Note selection, embedded-window delivery, note sources and backlinks; the Vault owns note content |
+
+The companion Bridge/Adapter controls delivery windows. The current paired system allows only the configured Obsidian embedded conversation surface to claim note references.
+
+When host tools are available, `dsh_reference_list` / `dsh_reference_read` expose submitted references, the current execution batch and lawful restored graph sources in the current conversation. Snapshot reads retain original content; refresh uses source adapters without rewriting submitted input. Inherited fork references do not create backlinks. Optional Runtime Support bridges tools into corresponding Codex executions without exposing arbitrary note paths or model-driven deletion.
+
+## Build and installation
+
+Use Core, Maintenance and consumers matched to **DSH 0.1.5-rc.2**. Other host versions require separate validation. Ordinary annotations do not require the complete graph stack; fixed upstream references and graph continuation require corresponding Maintenance capabilities.
+
+From the source root, use **pnpm 11.19.0**, as declared in [package.json](package.json), and follow the official RC2 host's Node requirement:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm pack
+```
+
+Build emits Host/Client bundles and declarations; both test and pack run a build first. Install the generated archive into the intended instance's web profile, for example:
+
+```bash
+dsh plugin --profile web add "file:/absolute/path/dsh-annotation-core-0.3.12-rc2.9.tgz"
+```
+
+Install matching Sidechat, Sticker or ThoughtDAG, restart the target `dsh web` and refresh the page. Launcher/Maintenance-managed instances should use their own deployment workflow to keep package versions, runtime bindings and loaded locations consistent. Building or pushing source does not update a running instance. An unversioned registry install does not guarantee this candidate code.
+
+## Consumer API
+
+Negotiate features before calling the [Client API](src/public/client-api.ts) or [Host API](src/public/host-api.ts).
+
+| Capability | Entry points |
+|---|---|
+| `cross-session-upstream-v1` | `openCrossSessionReference` opens the shared picker |
+| `graph-reference-actions-v1` | `addCrossSessionReference` targets a conversation; `resolveReferenceLink` returns one metadata locator; `deleteReferenceLink` removes a relationship |
+| `session-main-graph-v2` | `prepareGraphReferences` adopts lawful existing references with original versions and cutoffs |
+
+Keep the same `operationId` when retrying an add. Graph captures can supply `expectedSourceVersionId`, checked atomically by Maintenance, so a changed source cannot silently replace the previewed version. See [graph actions](docs/changes/2026-09-14-thoughtdag-reference-actions.md) and [source version protection](docs/changes/2026-09-14-graph-material-version-guard.md).
 
 ## Troubleshooting
 
-### Nothing appeared after installation
+- **No UI:** install a matching consumer. Sidechat and Sticker can share the same Core instance.
+- **Cross-session directory unavailable:** check Maintenance capabilities, paired versions and session archival/deletion status. Incompatibility and a disabled extension are different conditions.
+- **Conflict or insufficient capacity:** the draft is retained. Wait for state refresh and retry, or reduce the current materials; repeated clicks do not bypass validation.
 
-This is expected for the core alone. Install `dsh-sidechat` or `dsh-session-sticker-board` as well.
-
-### Can both consumers be installed?
-
-Yes. Both use the same single core instance.
-
-### Can this be used with another DSH version?
-
-Current client evidence comes from official `0.1.2-alpha.1`, but package metadata does not reject other DSH versions. Judge compatibility through runtime interfaces and regression tests, with a Maintenance Engine rollback point before upgrades.
+See [CHANGELOG](CHANGELOG.md) for history. Each change report states its validation scope; unit tests alone do not establish real model-answer or full deployment acceptance.
 
 ## License
 
 MIT
-
-
-## DSH 0.1.5-rc.2 candidate
-
-This candidate is compiled and tested against exactly 0.1.5-rc.2. Native command claims preserve ordered images and files. File receipts resolve only in the receiving Agent scope and roll back unless delivery accepts them. Legacy embedded images and request digests remain compatible. Durable submission evidence records admitted references and the original message identity before delivery; retries check the admission journal before resolving potentially retired receipts. Acceptance and storage flush must both succeed before references are marked sent.
