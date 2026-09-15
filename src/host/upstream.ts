@@ -18,7 +18,7 @@ export interface UpstreamHost {
   describe?(targetNativeSessionId:string,referenceId:string):Promise<unknown>
   status?(targetNativeSessionId:string,referenceId:string):Promise<{referenceId:string;state:'pending'|'sent'|'revoked'}>
   settleRead?(targetNativeSessionId:string,referenceId:string,requestId:string,delivery:'returned'|'failed'):Promise<unknown>
-  read(input:{targetNativeSessionId:string;referenceId:string;executionId:string;requestId?:string;cursor?:string;query?:string;view?:'selected-turn';maxBytes:number;totalBytes:number}):Promise<unknown>
+  read(input:{targetNativeSessionId:string;referenceId:string;executionId:string;requestId?:string;userRequestId?:string;cursor?:string;query?:string;view?:'selected-turn';maxBytes:number;totalBytes:number}):Promise<unknown>
   endExecution?(targetNativeSessionId:string,executionId:string):Promise<unknown>
 }
 export function upstreamHost(ctx:Context):UpstreamHost {

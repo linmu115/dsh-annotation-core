@@ -1,6 +1,6 @@
 # dsh-annotation-core
 
-为 DSH 插件提供统一注释气泡、跨会话引用、可靠发送和历史注释详情。当前源码版本 **0.3.12-rc2.10**，针对官方 **DSH 0.1.5-rc.2 / web profile**。这里的版本说明不代表已发布到 npm；使用本分支功能时请构建并安装匹配的本地包。
+为 DSH 插件提供统一注释气泡、跨会话引用、可靠发送和历史注释详情。当前源码版本 **0.3.12-rc2.11**，针对官方 **DSH 0.1.5-rc.2 / web profile**。这里的版本说明不代表已发布到 npm；使用本分支功能时请构建并安装匹配的本地包。
 
 [English](README_EN.md) · 中文
 
@@ -26,6 +26,30 @@ Core 是共享基础插件，没有独立侧栏或画布。Sidechat 提供划选
 首次发送会在预算内优先带入被引用回复所在的**问题与回答**。长问答会标明未完整读取及继续位置；中间工具过程有单独的按需读取入口。AI 可自行调用 `dsh_upstream_read`、`dsh_upstream_search` 查找更早上下文，无需再次询问用户是否允许读取已经授权的来源。
 
 不会默认复制整份上游历史、递归展开所有引用或生成逐轮上下文备份。来源版本、回复截止位置、单次页额度和本轮累计预算约束所有读取；初始材料也占用后续工具预算。详见[初始问答准备](docs/changes/2026-09-14-initial-upstream-turn.md)和[请求容量与预算](docs/changes/2026-09-14-system-audit-fixes.md)。
+
+### 原生 Agent 管理自身图与上下文
+
+配置并接通匹配版本的 Maintenance `annotation-context` Adapter 后，原生 DSH Agent 会获得以下会话作用域工具。工具只管理执行器当前会话，不能指定别人的 owner、profile 或 run。
+
+| 工具 | 使用方式 |
+| --- | --- |
+| `dsh_graph_inspect` | 分页查看自己的主干节点、连接、来源与保留材料；用 `section` 切换目录 |
+| `dsh_request_list` | 按真实用户请求索引当前会话，或指定已授权 `referenceId`；长请求用 `requestId` 和游标续读 |
+| `dsh_context_status` | 查看来源状态、窗口、历史读取覆盖、保留标记及操作是否实际生效；返回有界页面和输入字节测量 |
+| `dsh_context_window_set` | 在固定截止以内选择多个不连续事件区间；扩大只授权后续读取，缩小安排释放窗口外材料 |
+| `dsh_context_release` | 释放已经用完的材料正文，保留连接和来源定位；不返还本轮累计读取预算 |
+| `dsh_context_source_set` | 暂停／恢复来源；是否同时释放已读正文由 `release` 明确指定 |
+| `dsh_context_pin` | 设置或取消模型自己的保留标记；模型不能取消用户的固定保留 |
+| `dsh_graph_edit` | 添加来源或占位卡片、重命名、连接、断开和移除卡片；使用同一后端关系规则 |
+| `dsh_context_discover` | 在允许工作区发现会话，或列出本会话已有笔记链接；发现元数据不等于获得正文权限 |
+
+通常先查看状态或请求索引，再按需读取来源；材料使用结束后调用释放。`dsh_upstream_read` 可以接受索引返回的 `userRequestId`，读取仍受来源固定版本、完成回复截止、活动窗口和预算约束。模型新建的图连接具有独立操作凭据，不伪造用户发送回执。
+
+释放工具先返回 `pending-next-step`。下一次原生模型请求前，Core 追加 DSH 原生 `surfaceOp: replace` 事件；Maintenance 核验持久日志后才记录 `applied`。混合引用包和工具结果按各个片段释放，保留其它片段、工具调用配对以及真实用户正文和 `userComment`。原始事件仍可追溯。若其它压缩已改变该材料，返回失败，不重新装回已裁剪正文。
+
+状态和图目录分页不传整图或全文；索引和读取共用累计预算，状态与发现元数据按页额度保守计费并由 Engine 持久记录。管理写操作保留短回执，即使读额度或材料目录已满，也能释放已登记材料。未登记部分会明确报告，不冒充已追踪或已释放。历史读取覆盖通过 `section: "coverage"` 查看，与当前保留集合分开。
+
+本阶段仅支持 **DSH 原生 Agent**。这些新增工具不导出到 Codex 托管引擎；未接通、停用或不兼容的 Adapter 不提供可用写入能力。详细实现与验收见[原生上下文管理](docs/changes/2026-09-15-native-context-tools.md)。
 
 ### 可靠提交与冲突恢复
 
@@ -74,7 +98,7 @@ pnpm pack
 `build` 生成 Host、Client 和类型声明；`test`、`pack` 前均自动构建。将生成的包安装到所选实例的 `web` profile，例如：
 
 ```bash
-dsh plugin --profile web add "file:/absolute/path/dsh-annotation-core-0.3.12-rc2.10.tgz"
+dsh plugin --profile web add "file:/absolute/path/dsh-annotation-core-0.3.12-rc2.11.tgz"
 ```
 
 随后安装匹配的 Sidechat、Sticker 或 ThoughtDAG，完整重启目标 `dsh web` 并刷新页面。Launcher/Maintenance 管理的实例应通过该实例的部署流程安装，保证版本、运行绑定和实际加载位置一致。源码构建或 GitHub 提交本身不会更新运行实例，无版本号的 registry 安装也不能保证取得此候选代码。

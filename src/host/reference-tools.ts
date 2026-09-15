@@ -10,6 +10,7 @@ import { upstreamOf } from './upstream.ts'
 import { UpstreamToolBudgets, type NativeUpstreamUsage } from './upstream-budget.ts'
 import { registerUpstreamTools } from './upstream-tools.ts'
 import { reconcileGraphRevocations } from './graph-reference-recovery.ts'
+import { registerNativeContextTools } from './native-context-tools.ts'
 
 /** Read submitted snapshots and the calling execution's exact prepared batch. */
 export function availableReferenceSets(store: AnnotationStore, agent: Agent): readonly ReferenceSet[] {
@@ -86,6 +87,7 @@ export function registerReferenceTools(ctx: Context, store: AnnotationStore, sou
   ctx.on('session/disposed', session => endExecution(session.id))
   ctx.on('agent/disposed', ({ agent }) => endExecution(agent.session.id))
   registerUpstreamTools(ctx, store, upstreamBudgets)
+  registerNativeContextTools(ctx, upstreamBudgets)
   ctx.inject(['tools'], toolCtx => {
     const list = defineTool({
       name: 'dsh_reference_list',

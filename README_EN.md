@@ -1,6 +1,6 @@
 # dsh-annotation-core
 
-Shared annotation bubbles, cross-session references, reliable submission and historical annotation details for DSH plugins. Current source version: **0.3.12-rc2.10**, targeting official **DSH 0.1.5-rc.2 / the web profile**. This does not imply an npm release; build and install matching local packages to use this branch.
+Shared annotation bubbles, cross-session references, reliable submission and historical annotation details for DSH plugins. Current source version: **0.3.12-rc2.11**, targeting official **DSH 0.1.5-rc.2 / the web profile**. This does not imply an npm release; build and install matching local packages to use this branch.
 
 English · [中文](README.md)
 
@@ -26,6 +26,24 @@ Core has no independent sidebar or canvas. Sidechat supplies selection actions, 
 Initial submission prioritizes the bounded **question and answer containing the selection**. Long turns expose incompleteness and a continuation position; intermediate tool steps have a separate read entry. The model can call `dsh_upstream_read` and `dsh_upstream_search` to retrieve earlier context without asking again for permission to read an authorized source.
 
 Core does not automatically copy entire upstream histories, recursively expand every reference or create per-turn context backups. Source versions, reply cutoffs, page limits and a shared turn budget constrain reads. Initial material is deducted from the later tool budget. See [initial question/answer context](docs/changes/2026-09-14-initial-upstream-turn.md) and [request capacity and budgets](docs/changes/2026-09-14-system-audit-fixes.md).
+
+### Native Agent graph and context management
+
+With the matching Maintenance `annotation-context` Adapter configured and ready, native DSH agents receive conversation-scoped tools:
+
+- `dsh_graph_inspect` and `dsh_context_status`: bounded, revision-bound pages for sources, materials, operations, nodes, edges and historical read coverage.
+- `dsh_request_list`: the real user-request index for the current conversation or an authorized reference; long requests use stable request IDs and continuation cursors.
+- `dsh_context_window_set`, `dsh_context_release`, `dsh_context_source_set` and `dsh_context_pin`: select disjoint authorized ranges, release used bodies, pause/resume sources and manage model pins without removing user pins.
+- `dsh_graph_edit`: bounded edits to the executing conversation's main graph through the normal relationship service.
+- `dsh_context_discover`: allowed session candidates or the current conversation's existing note links; metadata discovery never grants body access.
+
+Read tools remain constrained by the fixed source version, completed-reply cutoff, active window and cumulative allowance. `dsh_upstream_read` also accepts the stable `userRequestId` from the index. Model-created links carry a separate activation record rather than a fabricated user-submission receipt.
+
+Release first reports `pending-next-step`. Before the next native model request, Core appends an immutable DSH `surfaceOp: replace` event. Maintenance acknowledges `applied` only after verifying the durable native evidence. Mixed envelopes and tool results retain unselected fragments, tool pairing, the real user message and `userComment`; original events remain intact. Unknown external compaction fails explicitly rather than resurrecting pruned content.
+
+Status pages never return the entire graph. Index and metadata reads share the cumulative read allowance; metadata pages are conservatively charged at their reserved byte limit in the durable Engine budget. Releasing does not refund it. Bounded management receipts remain available when the read budget or material catalog is full, and unregistered material is reported explicitly. Historical coverage is separate from current retention.
+
+This phase supports **native DSH agents only**. New tools are not exported to the managed Codex runtime. Missing, disabled or incompatible Adapter capabilities fail closed. See the [implementation and verification report](docs/changes/2026-09-15-native-context-tools.md).
 
 ### Durable submission and conflict recovery
 
@@ -74,7 +92,7 @@ pnpm pack
 Build emits Host/Client bundles and declarations; both test and pack run a build first. Install the generated archive into the intended instance's web profile, for example:
 
 ```bash
-dsh plugin --profile web add "file:/absolute/path/dsh-annotation-core-0.3.12-rc2.10.tgz"
+dsh plugin --profile web add "file:/absolute/path/dsh-annotation-core-0.3.12-rc2.11.tgz"
 ```
 
 Install matching Sidechat, Sticker or ThoughtDAG, restart the target `dsh web` and refresh the page. Launcher/Maintenance-managed instances should use their own deployment workflow to keep package versions, runtime bindings and loaded locations consistent. Building or pushing source does not update a running instance. An unversioned registry install does not guarantee this candidate code.

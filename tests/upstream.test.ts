@@ -24,9 +24,9 @@ const digest='sha256:'+'a'.repeat(64)
 const source:ReferenceSource={sourceType:'dsh-message',selectedText:'selected',locator:{profileId:'web',sessionId:'source',anchorId:'answer',
   role:'assistant',occurrence:0,selectedTextHash:selectedTextHash('selected'),upstream:{kind:'fixed-upstream',referenceId:'reference',sourceTitle:'Source',
     sourceVersionId:'v1',cutoffEventId:'completed-answer',targetSessionId:'target'}}}
-async function fixture(sent=true){
+async function fixture(sent=true,itemId='reference'){
   const store=new AnnotationStore(AnnotationStore.memoryTable(),{profileId:'web'})
-  await store.addReference('target',{expectedRevision:0,operationId:'op',setId:'set',referenceId:'reference',source,createdAt:1})
+  await store.addReference('target',{expectedRevision:0,operationId:'op',setId:'set',referenceId:itemId,source,createdAt:1})
   if(sent){
     const begun=await store.beginAnnotatedAdmission('target',{expectedRevision:1,clientSubmissionId:'submission',requestDigest:digest,setId:'set',referenceRevision:1,createdAt:2})
     await store.recordEnqueuedSubmission('target',{expectedRevision:begun.revision,clientSubmissionId:'submission',requestDigest:digest,userMessageId:'user',
@@ -47,6 +47,20 @@ async function fixture(sent=true){
   return {ctx,store,bridge,registry,agent,events}
 }
 describe('fixed upstream annotation lifecycle and model access',()=>{
+  it('accepts authority IDs from the native graph when the UI annotation ID differs and reconciles its positive tombstone', async()=>{
+    const f=await fixture(true,'ui-annotation'), registered:any[]=[]
+    f.ctx.provide('tools',{register:(tool:any)=>registered.push(tool)} as never)
+    registerUpstreamTools(f.ctx,f.store,new UpstreamToolBudgets())
+    await vi.waitFor(()=>expect(registered).toHaveLength(2))
+    await registered[0].execute({referenceId:'reference'},{agent:f.agent,signal:new AbortController().signal})
+    expect(f.bridge.read).toHaveBeenCalledWith(expect.objectContaining({referenceId:'reference',targetNativeSessionId:'target'}))
+    const status=vi.fn(async()=>({referenceId:'reference',state:'revoked'}))
+    Object.assign(f.bridge,{status})
+    await reconcileGraphRevocations(f.ctx,f.store,'target',false,['reference'])
+    expect(status).toHaveBeenCalledExactlyOnceWith('target','reference')
+    expect(f.store.readDeletedReference('target','ui-annotation')).toBeDefined()
+    expect(availableReferenceSets(f.store,f.agent).flatMap(set=>set.items)).toHaveLength(0)
+  })
   it('keeps a committing batch intact until rollback, then applies an authoritative revocation',async()=>{
     const f=await fixture(false)
     Object.assign(f.bridge,{status:async()=>({referenceId:'reference',state:'revoked'})})
