@@ -5,6 +5,8 @@ import { HostSourceRegistry } from '../src/host/source-registry.ts'
 import type { ReferenceItem, ReferenceSet } from '../src/domain/model.ts'
 import { selectedTextHash } from '../src/protocol/index.ts'
 import { referenceDirectoryChanged } from '../src/host/reference-directory.ts'
+import { AnnotationCoreRemoteService } from '../src/remote/service.ts'
+import { documentHash, type ReferenceSource } from '../src/protocol/index.ts'
 
 function item(referenceId = 'reference-1'): Extract<ReferenceItem, { sourceType: 'dsh-message' }> {
   return { referenceId, number: 1, selectedText: 'selected', userComment: 'comment', backlinkState: 'not-required',
@@ -205,5 +207,67 @@ describe('bounded host reference directory', () => {
     expect(referenceDirectoryChanged(before, { ...before, revision: 1, submissionJournal: {} })).toBe(false)
     expect(referenceDirectoryChanged(before, { ...before, pending: { ...before.pending, revision: 2 } })).toBe(false)
     expect(referenceDirectoryChanged(before, { ...before, pending: { ...before.pending, state: 'failed' } })).toBe(true)
+  })
+
+  it.each(['dsh-message', 'obsidian-note'] as const)('exports a durable tombstone after the composer removes a %s draft', async sourceType => {
+    const table = AnnotationStore.memoryTable(), store = new AnnotationStore(table, { profileId: 'web' })
+    const selected = item('removed'), markdown = 'PRIVATE NOTE SNAPSHOT'
+    const source: ReferenceSource = sourceType === 'dsh-message'
+      ? { sourceType, selectedText: selected.selectedText, locator: selected.locator }
+      : { sourceType, selectedText: selected.selectedText, locator: { vaultId: 'vault', notePath: 'note.md', blockId: 'block',
+          occurrence: 0, selectedTextHash: selectedTextHash(selected.selectedText) },
+        snapshot: { markdown, documentHash: documentHash(markdown), capturedAt: 1, freshness: 'captured' } }
+    await store.addReference('target', { expectedRevision: 0, operationId: 'capture', setId: 'set-1', referenceId: 'removed', source, createdAt: 1 })
+    await add(store, 'target', 'survivor')
+    const before = await store.referenceDirectory.listEntries({ nativeSessionId: 'target' }), listener = vi.fn()
+    store.referenceDirectory.subscribe(listener)
+    const service = new AnnotationCoreRemoteService(new Context(), store)
+    await service.removeReference({ id: 'target' } as never, { expectedRevision: 2, referenceId: 'removed' })
+    const page = await store.referenceDirectory.listEntries({ nativeSessionId: 'target' })
+    expect(listener).toHaveBeenCalledWith({ nativeSessionId: 'target', sourceRevision: 3 })
+    expect(page.items).toEqual([
+      { referenceId: 'removed', setId: 'set-1', sourceType, state: 'deleted', selectedText: '', userComment: '', source: {} },
+      before.items.find(value => value.referenceId === 'survivor'),
+    ])
+    expect(Object.keys(store.readDeletedReference('target', 'removed')!).sort())
+      .toEqual(['deletedAt', 'disposition', 'referenceId', 'scope', 'setId', 'sourceType'])
+    expect(store.readDeletedReference('target', 'removed')?.disposition).toBe('discard')
+    const jobs = store.listPendingDiscardJobs('target')
+    expect(jobs).toHaveLength(sourceType === 'obsidian-note' ? 1 : 0)
+    if (jobs.length) await store.completePendingDiscard('target', { expectedRevision: 3, referenceId: 'removed' })
+    expect(listener).toHaveBeenCalledOnce()
+    store.close()
+    const reopened = new AnnotationStore(table, { profileId: 'web' })
+    expect(await reopened.referenceDirectory.listEntries({ nativeSessionId: 'target' })).toEqual(page)
+    expect(JSON.stringify(page)).not.toContain(markdown)
+  })
+
+  it.each([true, false])('exports operation rollback after restart without changing source-notification policy (%s)', async notifySource => {
+    const table = AnnotationStore.memoryTable(), store = new AnnotationStore(table, { profileId: 'web' })
+    await add(store, 'target', 'removed'); await add(store, 'target', 'survivor')
+    const listener = vi.fn(); store.referenceDirectory.subscribe(listener)
+    const service = new AnnotationCoreRemoteService(new Context(), store)
+    await service.discardPendingOperation({ id: 'target' } as never, { expectedRevision: 2, operationId: 'add-removed', notifySource })
+    const page = await store.referenceDirectory.listEntries({ nativeSessionId: 'target' })
+    expect(page.items.map(value => [value.referenceId, value.state])).toEqual([['removed', 'deleted'], ['survivor', 'pending']])
+    expect(listener).toHaveBeenCalledOnce()
+    await service.discardPendingOperation({ id: 'target' } as never, { expectedRevision: 3, operationId: 'add-removed', notifySource })
+    expect(listener).toHaveBeenCalledOnce(); expect(store.readPendingState('target').revision).toBe(3)
+    store.close()
+    expect(await new AnnotationStore(table, { profileId: 'web' }).referenceDirectory.listEntries({ nativeSessionId: 'target' })).toEqual(page)
+  })
+
+  it('does not tombstone a draft retained by another committed producer operation', async () => {
+    const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
+    await add(store)
+    const selected = item('new-reference')
+    await store.addReference('target', { expectedRevision: 1, operationId: 'second-producer', referenceId: 'new-reference', setId: 'set-1',
+      source: { sourceType: 'dsh-message', selectedText: selected.selectedText, locator: selected.locator }, createdAt: 2 })
+    const before = await store.referenceDirectory.listEntries({ nativeSessionId: 'target' }), listener = vi.fn()
+    store.referenceDirectory.subscribe(listener)
+    await store.discardPendingOperation('target', { expectedRevision: 2, operationId: 'add-new-reference' })
+    expect(store.readDeletedReference('target', 'new-reference')).toBeUndefined()
+    expect(await store.referenceDirectory.listEntries({ nativeSessionId: 'target' })).toEqual(before)
+    expect(listener).not.toHaveBeenCalled()
   })
 })

@@ -251,6 +251,8 @@ export interface DeletedReferenceRecord {
   readonly scope: 'pending' | 'sent'
   readonly sourceType: ReferenceItem['sourceType']
   readonly deletedAt: number
+  /** Ordinary draft removal cancels capture; absent means an explicit relation deletion. */
+  readonly disposition?: 'discard' | undefined
 }
 
 const DeletedReferenceRecordSchema = z.object({
@@ -259,6 +261,7 @@ const DeletedReferenceRecordSchema = z.object({
   scope: z.enum(['pending', 'sent']),
   sourceType: z.enum(['dsh-message', 'obsidian-note']),
   deletedAt: NonNegativeIntegerSchema,
+  disposition: z.literal('discard').optional(),
 }).strict()
 
 export interface SessionAggregate {
@@ -627,6 +630,8 @@ export class AnnotationStore {
       }
       let pending = aggregate.pending
       let pendingDiscardJobs = aggregate.pendingDiscardJobs
+      let deletedReferences = aggregate.deletedReferences
+      const now = input.now ?? Date.now()
       if (operation.createdReference && pending !== undefined && operation.referenceId !== undefined) {
         const item = pending.items.find((candidate) => candidate.referenceId === operation.referenceId)
         const retainedByAnotherOperation = Object.values(aggregate.operations).some((candidate) =>
@@ -636,13 +641,16 @@ export class AnnotationStore {
           candidate.sourceDigest === operation.sourceDigest,
         )
         if (!retainedByAnotherOperation && item !== undefined && canonicalSha256(sourceFromItem(item)) === operation.sourceDigest) {
+          deletedReferences = { ...deletedReferences, [item.referenceId]: {
+            setId: pending.setId, referenceId: item.referenceId, sourceType: item.sourceType,
+            scope: 'pending', deletedAt: now, disposition: 'discard',
+          } }
           pending = removeReferenceFromSet(pending, operation.referenceId, pending.revision)
           if (pending.items.length === 0) pending = undefined
-          if (input.notifySource !== false) pendingDiscardJobs = withPendingDiscardJob(aggregate, item, input.now ?? Date.now())
+          if (input.notifySource !== false) pendingDiscardJobs = withPendingDiscardJob(aggregate, item, now)
         }
       }
       const revision = aggregate.revision + 1
-      const now = input.now ?? Date.now()
       const canceled: ReferenceOperationRecord = { ...operation, state: 'canceled', fenceRevision: revision, updatedAt: now }
       const next: SessionAggregate = {
         ...aggregate,
@@ -650,6 +658,7 @@ export class AnnotationStore {
         ...(pending === undefined ? { pending: undefined } : { pending }),
         operations: { ...aggregate.operations, [input.operationId]: canceled },
         pendingDiscardJobs,
+        deletedReferences,
       }
       return { changed: true, aggregate: next, value: this.pendingSummary(next) }
     })
@@ -690,11 +699,16 @@ export class AnnotationStore {
         aggregate.pending.revision,
       )
       if (pending.items.length === 0) pending = undefined
+      const now = input.now ?? Date.now()
       const next: SessionAggregate = {
         ...aggregate,
         revision: aggregate.revision + 1,
         pending,
-        pendingDiscardJobs: withPendingDiscardJob(aggregate, removedItem, input.now ?? Date.now()),
+        pendingDiscardJobs: withPendingDiscardJob(aggregate, removedItem, now),
+        deletedReferences: { ...aggregate.deletedReferences, [input.referenceId]: {
+          setId: aggregate.pending.setId, referenceId: input.referenceId, sourceType: removedItem.sourceType,
+          scope: 'pending', deletedAt: now, disposition: 'discard',
+        } },
       }
       return { changed: true, aggregate: next, value: this.pendingSummary(next) }
     })

@@ -67,7 +67,7 @@ export class PendingDiscardOutbox {
   private async discard(sessionId: string, job: PendingDiscardJob): Promise<void> {
     try {
       const deletion = this.store.readDeletedReference(sessionId, job.referenceId)
-      if (deletion !== undefined) {
+      if (deletion !== undefined && deletion.disposition !== 'discard') {
         if (deletion.scope !== 'pending' || deletion.referenceId !== job.referenceId ||
           job.item.referenceId !== job.referenceId || deletion.sourceType !== job.item.sourceType) {
           throw new Error('Pending discard job does not match its deleted reference identity')
