@@ -1,5 +1,6 @@
 import { Service } from '@deepseek-ai/cordis'
 import { chooseCrossSession } from './cross-session-picker.tsx'
+import { sessionTargetTitle } from './session-target-title.ts'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
 import type * as React from 'react'
 
@@ -79,7 +80,14 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     if(this.crossSessionTask)return this.crossSessionTask
     const capture=structuredClone(validateCapture(input)),operationId=id('cross-reference')
     const task=chooseCrossSession({
-      list:(workspaceId,after)=>this.remote(capture.sourceSessionId).upstreamDirectory({...(workspaceId===undefined?{}:{workspaceId}),...(after===undefined?{}:{after})}).then(unwrapRemote),
+      list:async(workspaceId,after)=>{
+        const page=unwrapRemote(await this.remote(capture.sourceSessionId).upstreamDirectory({...(workspaceId===undefined?{}:{workspaceId}),...(after===undefined?{}:{after})}))
+        if(workspaceId===undefined)return page
+        // Use the same already-projected metadata as the native sidebar; no transcript reads.
+        const sessions=this.ctx.get('sessions') as unknown as {list:{getSnapshot():{byId?:Record<string,{title?:string;displayTitle?:string}>}}}|undefined
+        const byId=sessions?.list.getSnapshot().byId
+        return {...page,items:page.items.map(item=>({...item,title:sessionTargetTitle(item,byId?.[item.id])}))}
+      },
       select:async target=>{await this.addCrossSessionReference(target,capture,{operationId})},
     },this.lifetime.signal).finally(()=>{this.crossSessionTask=undefined})
     this.crossSessionTask=task;return task

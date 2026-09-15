@@ -1,6 +1,6 @@
 # dsh-annotation-core
 
-为 DSH 插件提供统一注释气泡、跨会话引用、可靠发送和历史注释详情。当前源码版本 **0.3.12-rc2.11**，针对官方 **DSH 0.1.5-rc.2 / web profile**。这里的版本说明不代表已发布到 npm；使用本分支功能时请构建并安装匹配的本地包。
+为 DSH 插件提供统一注释气泡、跨会话引用、可靠发送和历史注释详情。当前源码版本 **0.3.12-rc2.12**，针对官方 **DSH 0.1.5-rc.2 / web profile**。这里的版本说明不代表已发布到 npm；使用本分支功能时请构建并安装匹配的本地包。
 
 [English](README_EN.md) · 中文
 
@@ -19,7 +19,7 @@ Core 是共享基础插件，没有独立侧栏或画布。Sidechat 提供划选
 ### 跨会话引用
 
 1. 使用配套 Sidechat，选中一条**已完成 AI 回复**的文段，点击“跨会话引用”。普通注释仍支持 user 和 assistant 消息；固定上游引用只接受已完成的 assistant 回复。
-2. 先选择工作区，再选择目标会话；列表支持滚动和分页加载。
+2. 先选择工作区，再选择目标会话；列表支持滚动和分页加载。会话名称优先采用 DSH 会话栏的当前标题，未载入的历史会话使用 Maintenance 保存的可读名称；仅读取已有列表元数据，不逐条打开会话历史。
 3. Core 打开真实目标会话，等待输入框就绪，再加入引用气泡。已有正文和附件保留，不自动发送。
 4. 输入问题并发送。引用范围固定为来源会话截至那条回复**完整结束**的位置；选区用于标明重点，之后新增的轮次不会进入这条引用。
 
@@ -100,7 +100,7 @@ pnpm pack
 `build` 生成 Host、Client 和类型声明；`test`、`pack` 前均自动构建。将生成的包安装到所选实例的 `web` profile，例如：
 
 ```bash
-dsh plugin --profile web add "file:/absolute/path/dsh-annotation-core-0.3.12-rc2.11.tgz"
+dsh plugin --profile web add "file:/absolute/path/dsh-annotation-core-0.3.12-rc2.12.tgz"
 ```
 
 随后安装匹配的 Sidechat、Sticker 或 ThoughtDAG，完整重启目标 `dsh web` 并刷新页面。Launcher/Maintenance 管理的实例应通过该实例的部署流程安装，保证版本、运行绑定和实际加载位置一致。源码构建或 GitHub 提交本身不会更新运行实例，无版本号的 registry 安装也不能保证取得此候选代码。

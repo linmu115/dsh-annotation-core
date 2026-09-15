@@ -1,6 +1,6 @@
 # dsh-annotation-core
 
-Shared annotation bubbles, cross-session references, reliable submission and historical annotation details for DSH plugins. Current source version: **0.3.12-rc2.11**, targeting official **DSH 0.1.5-rc.2 / the web profile**. This does not imply an npm release; build and install matching local packages to use this branch.
+Shared annotation bubbles, cross-session references, reliable submission and historical annotation details for DSH plugins. Current source version: **0.3.12-rc2.12**, targeting official **DSH 0.1.5-rc.2 / the web profile**. This does not imply an npm release; build and install matching local packages to use this branch.
 
 English · [中文](README.md)
 
@@ -19,7 +19,7 @@ Core has no independent sidebar or canvas. Sidechat supplies selection actions, 
 ### Cross-session references
 
 1. With the matching Sidechat plugin, select text in a **completed assistant reply** and choose cross-session reference. Ordinary annotations still accept user and assistant messages; fixed upstream references require completed assistant replies.
-2. Choose a workspace, then a target conversation. Lists support scrolling and pagination.
+2. Choose a workspace, then a target conversation. Lists support scrolling and pagination. Names prefer the current DSH sidebar title, with the saved Maintenance name for cold sessions. This reuses list metadata without opening individual transcripts.
 3. Core opens the real target page, waits for its composer and adds a bubble. Existing text and attachments stay intact; nothing is sent automatically.
 4. Write your question and send. The source range ends at the **complete end of the selected reply**. The selection identifies the focus; subsequent source turns are excluded.
 
@@ -94,7 +94,7 @@ pnpm pack
 Build emits Host/Client bundles and declarations; both test and pack run a build first. Install the generated archive into the intended instance's web profile, for example:
 
 ```bash
-dsh plugin --profile web add "file:/absolute/path/dsh-annotation-core-0.3.12-rc2.11.tgz"
+dsh plugin --profile web add "file:/absolute/path/dsh-annotation-core-0.3.12-rc2.12.tgz"
 ```
 
 Install matching Sidechat, Sticker or ThoughtDAG, restart the target `dsh web` and refresh the page. Launcher/Maintenance-managed instances should use their own deployment workflow to keep package versions, runtime bindings and loaded locations consistent. Building or pushing source does not update a running instance. An unversioned registry install does not guarantee this candidate code.
