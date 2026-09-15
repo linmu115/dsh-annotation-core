@@ -58,5 +58,7 @@ describe('workspace selection and real target composer navigation',()=>{
     expect(sessionTargetTitle({id:'cold',title:'cold'},{displayTitle:'项目目录'})).toBe('项目目录')
     expect(sessionTargetTitle({id:'cold',title:'DSH session session-old'},{title:'刚改好的名称'})).toBe('刚改好的名称')
     expect(sessionTargetTitle({id:'cold',title:'cold'},{displayTitle:'cold'})).toBe('未命名会话')
+    expect(sessionTargetTitle({id:'cold',title:'DSH session 持久化机制'})).toBe('DSH session 持久化机制')
+    expect(sessionTargetTitle({id:'cold',title:'session-deadbeef-接口讨论'})).toBe('session-deadbeef-接口讨论')
   })
 })
