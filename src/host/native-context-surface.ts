@@ -10,6 +10,8 @@ interface ReleaseEvidence { operationIds: string[]; materialIds: string[]; origi
 const plugin = 'dsh-annotation-core'
 const marker = (id: string) => `[Released context ${id}; source position is retained. Read again only when needed.]`
 class NativeMaterialUnavailable extends Error {}
+/** Only failure to query the optional Host may degrade an otherwise unrelated chat. */
+export class NativeContextHostUnavailable extends Error {}
 
 /** Only tool-owned, persisted metadata is used; arbitrary strings and user-authored JSON are never classifiers. */
 export function nativeMaterialMeta(kind: 'read' | 'search' | 'requests', args: unknown, output: unknown) {
@@ -92,6 +94,14 @@ function currentNode(session: Session, root: number) {
   }
   return undefined
 }
+function retainedParts(session: Session): SurfacePart[] {
+  return session.surface.nodes.flatMap(seq => {
+    const event = session.eventAt(seq)!, proof = evidence(event)
+    const original = proof ? session.eventAt(SessionSeq(proof.originalEventSeq)) : event
+    if (!original || (proof && original.seq >= event.seq)) throw new Error('Material registration lacks its original native event')
+    return partsFor(session, original).filter(part => !proof?.materialIds.includes(part.material.materialId))
+  })
+}
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -158,22 +168,13 @@ export class NativeSurfaceController {
   private readonly issues = new WeakMap<Session, { unregisteredMaterials: number; state: 'ready' | 'registration-pending'; reason?: string }>()
   constructor(private readonly host: NativeContextHost) {}
   registrationState(session: Session) { return this.issues.get(session) ?? { unregisteredMaterials: 0, state: 'ready' as const } }
+  hasRetainedMaterials(session: Session) { return retainedParts(session).length > 0 }
   private async registerMaterials(session: Session, executionId: string, signal: AbortSignal): Promise<void> {
     signal.throwIfAborted()
     let known = this.registered.get(session)
     if (!known) { known = new Set(); this.registered.set(session, known) }
-    const pending: NativeMaterial[] = []
-    for (const seq of session.surface.nodes) {
-      const event = session.eventAt(seq)!
-      const proof = evidence(event)
-      const original = proof ? session.eventAt(SessionSeq(proof.originalEventSeq)) : event
-      if (!original || (proof && original.seq >= event.seq)) throw new Error('Material registration lacks its original native event')
-      // A batch can fail before every sibling is registered. A later partial release
-      // must not hide the retained siblings; their IDs and digests still belong to
-      // the original event, while released parts must never be registered again.
-      for (const part of partsFor(session, original)) if (!proof?.materialIds.includes(part.material.materialId)
-        && !known.has(part.material.materialId)) pending.push(part.material)
-    }
+    // Partial replacements retain the original IDs of unregistered siblings.
+    const pending = retainedParts(session).map(part => part.material).filter(item => !known.has(item.materialId))
     try {
       for (let start = 0; start < pending.length; start += 50) {
         const batch = pending.slice(start, start + 50)
@@ -191,7 +192,12 @@ export class NativeSurfaceController {
     signal.throwIfAborted()
     if (!applyPending) return this.registerMaterials(session, executionId, signal)
     // Already accepted releases can free capacity even when new material registration is full.
-    const plans = await this.host.request<{ items: NativeReleasePlan[]; materials: NativeMaterial[] }>(session.id, 'release-plans', { executionId }, signal)
+    let plans: { items: NativeReleasePlan[]; materials: NativeMaterial[] }
+    try { plans = await this.host.request(session.id, 'release-plans', { executionId }, signal) }
+    catch (error) {
+      signal.throwIfAborted()
+      throw new NativeContextHostUnavailable('Native context Host could not verify pending operations', { cause: error })
+    }
     for (const plan of plans.items) {
       if (plan.state !== 'pending-next-step') continue
       const desired = plan.materialIds.map(id => plans.materials.find(item => item.materialId === id))

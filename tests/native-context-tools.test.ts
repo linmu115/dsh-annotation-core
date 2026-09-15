@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { nativeContextPage, nativeContextToolDefinitions, registerNativeContextTools } from '../src/host/native-context-tools.ts'
-import { NativeSurfaceController } from '../src/host/native-context-surface.ts'
+import { NativeSurfaceController, nativeMaterialMeta } from '../src/host/native-context-surface.ts'
 import { isNativeContextAgent, type NativeContextHost } from '../src/host/native-context-contract.ts'
 import { UpstreamToolBudgets } from '../src/host/upstream-budget.ts'
 
@@ -57,6 +58,49 @@ describe('native context DSH tool boundaries', () => {
     const result = await f.tools.find(tool => tool.name === 'dsh_context_status')!.execute({}, f.exec as never)
     expect(f.request).toHaveBeenLastCalledWith('caller-session', 'status', { executionId: 'turn-budget', modelReadBytes: 4000, totalBytes: 24000 }, f.exec.signal)
     expect(Buffer.byteLength(result as string)).toBeLessThanOrEqual(4000)
+  })
+  it('rejects whole-source release while registration is incomplete but allows explicit known handles to free capacity', async () => {
+    const f = fixture(), output = JSON.stringify({ referenceId: 'reference', items: [{ eventId: 'answer', text: 'new context', offset: 0 }] })
+    f.session.append('tool/result', { turn: 1, step: 1,
+      message: createToolResultMessage({ callId: ToolCallId('read-call'), content: [{ type: 'text', text: output }], isError: false }),
+      meta: nativeMaterialMeta('read', {}, output)! }, { surfaceOp: 'append' })
+    const implementation = f.request.getMockImplementation()!
+    f.request.mockImplementation(async (id, operation, input) => {
+      if (operation === 'materials-register') throw new Error('catalog full')
+      return implementation(id, operation, input)
+    })
+    const tool = f.tools.find(value => value.name === 'dsh_context_release')!
+    await expect(tool.execute({ operationId: 'whole-source', expectedRevision: 3, referenceId: 'reference' }, f.exec as never)).rejects.toThrow('尚未登记')
+    expect(f.request.mock.calls.some(([, operation]) => operation === 'release')).toBe(false)
+    await tool.execute({ operationId: 'known-material', expectedRevision: 3, materialIds: ['persisted-material'] }, f.exec as never)
+    expect(f.request).toHaveBeenLastCalledWith('caller-session', 'release', expect.objectContaining({ materialIds: ['persisted-material'] }), f.exec.signal)
+    expect(f.budgets.reserve).not.toHaveBeenCalled()
+  })
+  it.each(['ordinary', 'retained', 'incoming'] as const)('handles an unavailable optional host without bypassing material controls (%s)', async kind => {
+    const f = fixture(), registered = new Set<string>()
+    const scoped = new Context()
+    scoped.provide('tools', { register: (tool: { name: string }) => { registered.add(tool.name); return () => registered.delete(tool.name) } } as never)
+    const agent = { ...f.agent, ctx: scoped } as Agent
+    f.ctx.provide('tools', { register: vi.fn() } as never)
+    f.ctx.provide('maintenanceNativeContext' as never, f.host)
+    registerNativeContextTools(f.ctx, f.budgets)
+    await vi.waitFor(() => expect(f.ctx.get('maintenanceNativeContext' as never)).toBe(f.host))
+    f.ctx.emit('agent/created', { agent })
+    await vi.waitFor(() => expect(registered.size).toBe(9))
+    f.request.mockRejectedValue(new Error('Adapter 已停用'))
+    if (kind === 'retained') {
+      const output = JSON.stringify({ referenceId: 'reference', items: [{ eventId: 'answer', text: 'must not bypass pending release', offset: 0 }] })
+      f.session.append('tool/result', { turn: 1, step: 1,
+        message: createToolResultMessage({ callId: ToolCallId('read-call'), content: [{ type: 'text', text: output }], isError: false }),
+        meta: nativeMaterialMeta('read', {}, output)! }, { surfaceOp: 'append' })
+    }
+    const messages = kind === 'incoming' ? [createUserMessage({ source: { kind: 'dsh-annotation', schemaVersion: 1, setId: 'set',
+      targetUserMessageId: 'user', count: 1, digest: 'digest' }, content: [{ type: 'text', text: 'pending injection' }] })] : []
+    const enter = f.ctx.waterfall('agent/pre-step', { agent, messages, turn: 1, step: 1, signal: f.exec.signal }, async () => ({ kind: 'enter', messages }))
+    if (kind === 'ordinary') await expect(enter).resolves.toEqual({ kind: 'enter', messages: [] })
+    else await expect(enter).rejects.toThrow('本次请求已暂停')
+    expect(registered.size).toBe(0)
+    expect(f.request.mock.calls.map(([, operation]) => operation)).toEqual(['release-plans'])
   })
   it('registers only agent-scoped native tools and disposes them with the optional capability', async () => {
     const f = fixture(), globalRegister = vi.fn(), scopedDisposes: (() => void)[] = [], scopedRegister = vi.fn(() => { const dispose = vi.fn(); scopedDisposes.push(dispose); return dispose })

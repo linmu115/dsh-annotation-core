@@ -14,7 +14,7 @@ import type { NativeMaterial, NativeReleasePlan } from '../src/host/native-conte
 import type { UpstreamToolBudgets } from '../src/host/upstream-budget.ts'
 
 describe('native AgentLoop execution without a live model', () => {
-  it('registers the native tool, returns pending, applies at pre-step and removes only the chosen material from the next generated request', async () => {
+  it.each(['status-first', 'direct-reference'] as const)('applies native release on the next generated request (%s)', async mode => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime); await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
@@ -23,7 +23,8 @@ describe('native AgentLoop execution without a live model', () => {
       async request(_id: string, operation: string, input: any) {
         if (operation === 'materials-register') { for (const material of input.materials) materials.set(material.materialId, material); return { recorded: true } }
         if (operation === 'release-plans') return { items: plans, materials: [...materials.values()] }
-        if (operation === 'release') plans.push({ operationId: input.operationId, materialIds: input.materialIds, state: 'pending-next-step' })
+        if (operation === 'release') plans.push({ operationId: input.operationId, materialIds: input.materialIds
+          ?? [...materials.values()].filter(item => item.referenceIds.includes(input.referenceId)).map(item => item.materialId), state: 'pending-next-step' })
         if (operation === 'release-receipt') { receipts.push(input); plans.find(value => value.operationId === input.operationId)!.state = input.state }
         return { ownerSessionId: 'native-loop-test', revision: 1, sources: [], materials: [...materials.values()], operations: plans }
       } })
@@ -34,12 +35,14 @@ describe('native AgentLoop execution without a live model', () => {
       async resolveModel(provider: string, model: string) { return { provider, id: model, name: model, contextWindow: 131072 } }
       async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
         requests.push(options)
-        if (requests.length <= 2) {
+        if (requests.length <= (mode === 'status-first' ? 2 : 1)) {
           const selected = [...materials.values()].find(value => value.ranges[0]?.eventId === 'answer')!
           if (requests.length === 2 && !selected) throw new Error('Initial source was not registered through the native input pipeline')
-          const name = requests.length === 1 ? 'dsh_context_status' : 'dsh_context_release'
-          const id = ToolCallId(requests.length === 1 ? 'status-call' : 'release-call')
-          const args = JSON.stringify(requests.length === 1 ? { section: 'materials' } : { operationId: 'loop-release', expectedRevision: 1, materialIds: [selected.materialId] })
+          const status = mode === 'status-first' && requests.length === 1
+          const name = status ? 'dsh_context_status' : 'dsh_context_release'
+          const id = ToolCallId(status ? 'status-call' : 'release-call')
+          const args = JSON.stringify(status ? { section: 'materials' } : { operationId: 'loop-release', expectedRevision: 1,
+            ...(mode === 'direct-reference' ? { referenceId: 'reference' } : { materialIds: [selected.materialId] }) })
           yield { type: 'block-start', index: 0, blockType: 'tool-call' }
           yield { type: 'tool-call-delta', index: 0, id, name, argumentsDelta: args }
           yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name, arguments: args } }
@@ -68,14 +71,16 @@ describe('native AgentLoop execution without a live model', () => {
     agent.inject(context)
     agent.followup(user)
     await idle
-    expect(requests).toHaveLength(3)
+    expect(requests).toHaveLength(mode === 'status-first' ? 3 : 2)
     expect(requests[0]!.tools?.some(tool => tool.name === 'dsh_context_release')).toBe(true)
     expect(JSON.stringify(requests[0]!.messages)).toContain('distinctive upstream body')
-    expect(JSON.stringify(requests[1]!.messages)).toContain([...materials.values()].find(value => value.ranges[0]?.eventId === 'answer')!.materialId)
-    expect(JSON.stringify(requests[2]!.messages)).not.toContain('distinctive upstream body')
-    expect(JSON.stringify(requests[2]!.messages)).toContain('source question')
-    expect(JSON.stringify(requests[2]!.messages)).toContain('preserve this user request')
-    expect(JSON.stringify(requests[2]!.messages)).toContain('Release the used answer body and keep my request.')
+    if (mode === 'status-first') {
+      expect(JSON.stringify(requests[1]!.messages)).toContain([...materials.values()].find(value => value.ranges[0]?.eventId === 'answer')!.materialId)
+      expect(JSON.stringify(requests.at(-1)!.messages)).toContain('source question')
+    }
+    expect(JSON.stringify(requests.at(-1)!.messages)).not.toContain('distinctive upstream body')
+    expect(JSON.stringify(requests.at(-1)!.messages)).toContain('preserve this user request')
+    expect(JSON.stringify(requests.at(-1)!.messages)).toContain('Release the used answer body and keep my request.')
     const original = agent.session.snapshotEvents().find(event => event.type === 'user/message' && event.data.id === context.id)!
     expect(original.data).toEqual(context)
     expect(receipts).toHaveLength(1)
@@ -83,7 +88,7 @@ describe('native AgentLoop execution without a live model', () => {
     const releaseResult = agent.session.snapshotEvents().find(event => event.type === 'tool/result' && event.data.message.source.callId === 'release-call')!
     expect(JSON.stringify(releaseResult.data)).toContain('pending-next-step')
     expect(ctx.tools.schemas().some(tool => tool.name === 'dsh_context_release')).toBe(false)
-    if (process.env.DSH_NATIVE_CONTEXT_TEST_ARTIFACT) await writeFile(process.env.DSH_NATIVE_CONTEXT_TEST_ARTIFACT,
+    if (mode === 'status-first' && process.env.DSH_NATIVE_CONTEXT_TEST_ARTIFACT) await writeFile(process.env.DSH_NATIVE_CONTEXT_TEST_ARTIFACT,
       JSON.stringify({ payload: { header: agent.session.header, events: agent.session.snapshotEvents(), inheritedEventCount: Number(agent.session.inheritedEventCount) },
         materials: [...materials.values()], receipt: receipts[0], operation: plans[0] }, null, 2), 'utf8')
   })

@@ -45,6 +45,8 @@ Status pages never return the entire graph. Index and metadata reads share the c
 
 This phase supports **native DSH agents only**. New tools are not exported to the managed Codex runtime. Missing, disabled or incompatible Adapter capabilities fail closed. See the [implementation and verification report](docs/changes/2026-09-15-native-context-tools.md).
 
+If the capability becomes unavailable during a run, ordinary chats without plugin material continue with these tools unmounted. Requests with retained plugin material or incoming annotations pause until capability recovery, preserving pending releases and window restrictions. Source-wide release and window changes first register newly admitted material. If registration is incomplete, known `materialIds` can still be released to free capacity; an empty operation is never presented as releasing the whole source.
+
 ### Durable submission and conflict recovery
 
 Before sending, Core rechecks the authoritative pending revision and target/composer identity. If references change during preparation, bubbles refresh while text, images and files remain available for a manual retry.

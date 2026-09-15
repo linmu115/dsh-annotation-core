@@ -3,7 +3,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool, type ParameterSchemaSpec } from '@deepseek-ai/dsh-tools'
 import { canonicalJson, canonicalSha256 } from '../protocol/index.ts'
 import { isNativeContextAgent, nativeContextHost, requireNativeContextAgent, type NativeContextHost } from './native-context-contract.ts'
-import { NativeSurfaceController, nativeMaterialMeta } from './native-context-surface.ts'
+import { NativeContextHostUnavailable, NativeSurfaceController, nativeMaterialMeta } from './native-context-surface.ts'
 import type { UpstreamToolBudgets } from './upstream-budget.ts'
 
 const string = { type: 'string' as const }
@@ -111,8 +111,16 @@ export function nativeContextToolDefinitions(host: NativeContextHost, controller
       if (Buffer.byteLength(canonicalJson(args)) > 32000) throw new Error('Context command is too large')
       const executionId = nativeExecutionId(agent)
       const stateRead = definition.operation === 'status' || definition.operation === 'inspect'
-      // Management remains available when the material catalog is full; it acts only on already persisted handles.
-      if (stateRead || definition.operation === 'requests') await controller.synchronize(agent.session, executionId, exec.signal, false)
+      const consumesMaterials = ['release', 'window-set', 'pin'].includes(definition.operation)
+        || definition.operation === 'source-set' && args.release === true
+        || definition.operation === 'graph-edit' && ['disconnect', 'remove-node'].includes(String(args.action))
+      // Initial context is appended after the first pre-step; tool bodies must see
+      // that material, and results from an earlier tool in the same native batch.
+      if (stateRead || definition.operation === 'requests' || consumesMaterials)
+        await controller.synchronize(agent.session, executionId, exec.signal, false)
+      if (consumesMaterials && controller.registrationState(agent.session).state === 'registration-pending'
+        && !Array.isArray(args.materialIds))
+        throw new Error('部分上下文材料尚未登记，不能确认整个来源已释放或窗口已收缩。请先用已知 materialIds 释放材料腾出容量，或恢复登记后重试。')
       const allowance = definition.operation === 'requests' ? budgets.reserve(agent)
         : stateRead || definition.operation === 'discover' ? budgets.reserve(agent, 4000) : undefined
       let output: string | undefined
@@ -156,10 +164,13 @@ export function registerNativeContextTools(ctx: Context, budgets: UpstreamToolBu
     const controller = new NativeSurfaceController(host)
     const mounted = new Map<Agent, (() => void)[]>()
     const tools = nativeContextToolDefinitions(host, controller, budgets)
+    const unmount = (agent: Agent) => {
+      for (const dispose of mounted.get(agent) ?? []) dispose()
+      mounted.delete(agent)
+    }
     const mount = (agent: Agent) => {
       if (!isNativeContextAgent(agent)) {
-        for (const dispose of mounted.get(agent) ?? []) dispose()
-        mounted.delete(agent)
+        unmount(agent)
         return
       }
       if (mounted.has(agent)) return
@@ -167,12 +178,22 @@ export function registerNativeContextTools(ctx: Context, budgets: UpstreamToolBu
       mounted.set(agent, disposers)
     }
     capability.on('agent/created', ({ agent }) => mount(agent))
-    capability.on('agent/disposed', ({ agent }) => { for (const dispose of mounted.get(agent) ?? []) dispose(); mounted.delete(agent) })
+    capability.on('agent/disposed', ({ agent }) => unmount(agent))
     capability.on('agent/pre-step', async (payload, next) => {
       const decision = await next()
       mount(payload.agent)
-      if (decision.kind !== 'reject' && isNativeContextAgent(payload.agent))
-        await controller.synchronize(payload.agent.session, nativeExecutionId(payload.agent), payload.signal)
+      if (decision.kind !== 'reject' && isNativeContextAgent(payload.agent)) {
+        try { await controller.synchronize(payload.agent.session, nativeExecutionId(payload.agent), payload.signal) }
+        catch (error) {
+          payload.signal.throwIfAborted()
+          if (!(error instanceof NativeContextHostUnavailable)) throw error
+          unmount(payload.agent)
+          if (controller.hasRetainedMaterials(payload.agent.session) || decision.messages.some(message => message.source.kind === 'dsh-annotation'))
+            throw new Error('上下文管理能力暂不可用，本次请求已暂停；当前仍有插件材料或待注入引用，请恢复能力后继续，以免绕过待释放或窗口限制。', { cause: error })
+          // Ordinary conversations without plugin material remain usable. No
+          // mutation or receipt is fabricated, and scoped tools stay unmounted.
+        }
+      }
       return decision
     })
     capability.effect(() => () => { for (const disposers of mounted.values()) for (const dispose of disposers) dispose(); mounted.clear() }, 'annotation-core.nativeContextTools')
