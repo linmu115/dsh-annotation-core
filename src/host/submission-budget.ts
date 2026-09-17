@@ -71,8 +71,11 @@ export async function submissionReferenceBudget(ctx: Context, agent: Agent, mess
   const request = { messages, ...system }
   let imageTokens = 0
   if (images.length) {
-    const prices = llm.imageRequestPricing?.(selection.provider, selection.model)?.priceImages(images)
-    if (prices?.length !== images.length || prices.some(price => !Number.isSafeInteger(price.visualTokens)
+    const pricing = llm.imageRequestPricing?.(selection.provider, selection.model)
+    // Like the host meter, missing route pricing is not a media capability failure.
+    // Reserve a neutral estimate per occurrence, without pricing base64 as text.
+    const prices = pricing === undefined ? images.map(() => ({ visualTokens: 4096, text: '' })) : pricing.priceImages(images)
+    if (prices.length !== images.length || prices.some(price => !Number.isSafeInteger(price.visualTokens)
       || price.visualTokens < 0 || typeof price.text !== 'string'))
       throw new Error('当前模型未提供可靠的图片额度，已保留正文、附件和引用草稿')
     imageTokens = prices.reduce((total, price) => total + price.visualTokens + Buffer.byteLength(price.text), 0)

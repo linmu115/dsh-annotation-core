@@ -24,6 +24,20 @@ function fixture() {
 }
 
 describe('initial reference allowance', () => {
+  it('uses a neutral image estimate when the routed adapter does not declare pricing', async () => {
+    const f = fixture()
+    vi.spyOn(f.ctx.get('llm')!, 'imageRequestPricing').mockReturnValue(undefined)
+    const baseline = (await f.budget()).maxTokens!
+    const image = { type: 'image', attachment: { attachmentId: 'old-image', width: 1200, height: 1200, bytes: 100, mediaType: 'image/png' } }
+    const original = f.user('old question', [image])
+    f.history.push(original)
+    const before = JSON.stringify(f.history)
+    const budget = await f.budget(f.user('new reference', [image]))
+    expect(budget.maxTokens).toBeGreaterThan(0)
+    expect(budget.maxTokens).toBeLessThan(baseline - 8192)
+    expect(JSON.stringify(f.history)).toBe(before)
+    expect(f.priceImages).not.toHaveBeenCalled()
+  })
   it('uses native inner usage and provider payload accounting instead of outer transcript size', async()=>{
     const f=fixture()
     f.history.push(f.user('outer transcript already consumed '.repeat(10000)))
