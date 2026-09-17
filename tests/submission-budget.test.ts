@@ -24,6 +24,39 @@ function fixture() {
 }
 
 describe('initial reference allowance', () => {
+  it('does not price persisted replay metadata as model-visible text', async () => {
+    const f = fixture(); const message: any = f.user('old message')
+    f.history.push(message)
+    const before = (await f.budget()).maxTokens
+    f.history[0] = { ...message, source: { ...message.source, replayState: { encrypted_content: 'x'.repeat(1000000) } } }
+    expect((await f.budget()).maxTokens).toBe(before)
+  })
+
+  it('uses durable selected context and native checkpoint pricing before admitting references', async () => {
+    const f = fixture(); f.history.push(f.user('old history '.repeat(100000)))
+    const count = vi.fn(async (_request: unknown, _input: unknown[]) => 9000)
+    const encode = vi.fn((messages: unknown[]) => messages)
+    const prepareCall = vi.fn(async () => ({ config: { provider: 'test', model: 'model', maxTokens: 8192 },
+      nativeContext: { format: 'native', scope: 'route', count, encode } }))
+    Object.assign(f.ctx.get('llm')!, { prepareCall })
+    const selector = vi.fn(async () => ({ messages: [f.user('retained')], adapterContext: { format: 'native', scope: 'route', input: [{ checkpoint: 'opaque' }] } }))
+    f.ctx.provide('agents', { contextProvider: () => selector } as never)
+    const budget = await f.budget()
+    expect(selector).toHaveBeenCalledOnce()
+    expect(budget.maxTokens).toBe(65536 - 9000 - 8192 - 4096)
+    expect(count.mock.calls[0]?.[1]?.[0]).toEqual({ checkpoint: 'opaque' })
+    expect(JSON.stringify(encode.mock.calls)).not.toContain('old history')
+  })
+  it('does not bypass failed context selection or invalid native counts', async () => {
+    const f = fixture()
+    Object.assign(f.ctx.get('llm')!, { prepareCall: async () => ({ config: f.selection, nativeContext: {
+      format: 'native', scope: 'route', count: async () => NaN, encode: (messages: unknown[]) => messages } }) })
+    f.ctx.provide('agents', { contextProvider: () => async () => ({ messages: [] }) } as never)
+    await expect(f.budget()).rejects.toThrow('无效额度')
+    Object.assign(f.ctx.get('agents')!, { contextProvider: () => async () => { throw new Error('compression failed') } })
+    await expect(f.budget()).rejects.toThrow('compression failed')
+  })
+
   it('uses a neutral image estimate when the routed adapter does not declare pricing', async () => {
     const f = fixture()
     vi.spyOn(f.ctx.get('llm')!, 'imageRequestPricing').mockReturnValue(undefined)

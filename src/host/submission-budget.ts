@@ -1,9 +1,22 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { UserMessage, LlmResolvedModelInfo, Message } from '@deepseek-ai/dsh-llm'
+import { createSystemMessage, type GenerateOptions, type PreparedLlmCall, type UserMessage, type LlmResolvedModelInfo, type Message } from '@deepseek-ai/dsh-llm'
 import { renderPrompt, renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt'
 import type { ReferenceBudgetOptions } from '../domain/budget.ts'
+
+// Optional APIs exposed by the deployed RC2 context-aware host; older hosts
+// retain the conservative uncompressed path below.
+interface ManagedCall extends PreparedLlmCall {
+  nativeContext?: { format: string; scope: string;
+    encode(messages: Message[]): unknown[];
+    count(request: GenerateOptions, input: unknown[]): Promise<number> }
+}
+interface ContextOwners {
+  contextProvider?(agent: Agent): ((request: GenerateOptions, call: ManagedCall) => Promise<{
+    messages: Message[]; adapterContext?: { format: string; scope: string; input: unknown[] }
+  }>) | undefined
+}
 
 interface NativeBudget {
   basis: 'new-thread' | 'verified-thread' | 'conservative'
@@ -17,8 +30,8 @@ interface NativeBudget {
   countInputBytes(messages: readonly Message[], referenceText?: string): number
   validateScope?(): Promise<void>
 }
-export function submissionBudgetScope(agent: Agent): string {
-  const events = agent.session.snapshotEvents()
+export function submissionBudgetScope(agent: Agent, allowContextCheckpoints = false): string {
+  const events = agent.session.snapshotEvents().filter(event => !allowContextCheckpoints || !['context/operation', 'context/operation-result', 'context/checkpoint', 'context/checkpoint-commit'].includes(event.type))
   return JSON.stringify([agent.options, agent.session.header?.cwd, events.length, events.at(-1)])
 }
 
@@ -65,8 +78,34 @@ export async function submissionReferenceBudget(ctx: Context, agent: Agent, mess
       throw new Error('当前请求包含无法计价的内容，已保留引用草稿')
     return record
   }
-  const messages = [...agent.session.deriveMessages(), message].map(value =>
-    ({ ...value, content: value.content.map(projectBlock) })) as Message[]
+  let history = agent.session.deriveMessages()
+  let selectedRequestTokens: number | undefined
+  const selector = native === undefined ? (ctx.get('agents') as ContextOwners | undefined)?.contextProvider?.(agent) : undefined
+  if (selector) {
+    // Use the same durable context owner as the loop. Raw archive length is
+    // not the active provider context, and must not block its compaction.
+    // The pending message identifies the protected boundary. The context owner
+    // compacts only persisted history; this draft is neither persisted nor summarized.
+    const prepared = await llm.prepareCall({ ...selection, ...(agent.options.maxTokens === undefined ? {} : { maxTokens: agent.options.maxTokens }) }, signal) as ManagedCall
+    const systems = [createSystemMessage(renderPrompt(assembly), 'annotation-core-budget')]
+    const request: GenerateOptions = { ...prepared.config, messages: [...systems, ...history.filter(value => value.role !== 'system'), message], tools: assembly.tools, ...(signal === undefined ? {} : { signal }) }
+    const projection = await selector(request, prepared)
+    history = projection.messages.filter(value => value.role !== 'system')
+    if (projection.adapterContext) {
+      const capability = prepared.nativeContext
+      if (!capability || capability.format !== projection.adapterContext.format || capability.scope !== projection.adapterContext.scope)
+        throw new Error('上下文管理器与当前模型不匹配，已保留引用草稿')
+      selectedRequestTokens = await capability.count({ ...request, messages: systems },
+        [...projection.adapterContext.input, ...capability.encode([...history, message])])
+    } else if (prepared.nativeContext) {
+      selectedRequestTokens = await prepared.nativeContext.count({ ...request, messages: systems }, prepared.nativeContext.encode([...history, message]))
+    }
+    if (selectedRequestTokens !== undefined && (!Number.isSafeInteger(selectedRequestTokens) || selectedRequestTokens < 0))
+      throw new Error('上下文管理器返回无效额度，已保留引用草稿')
+    signal?.throwIfAborted()
+  }
+  const messages = [...history, message].map(value =>
+    ({ role: value.role, content: value.content.map(projectBlock) })) as Message[]
   const system = { system: renderPrompt(assembly), context: renderContextSnapshot(assembly), tools: assembly.tools }
   const request = { messages, ...system }
   let imageTokens = 0
@@ -93,7 +132,7 @@ export async function submissionReferenceBudget(ctx: Context, agent: Agent, mess
   const requestBytes = nativeBytes === undefined ? Buffer.byteLength(JSON.stringify(request))
     : nativeBytes + Buffer.byteLength(JSON.stringify(system)) + nativeTools
   const remaining = Math.max(0, Math.min(
-    window === undefined ? Infinity : window - (native?.inputTokens ?? 0) - (native?.outputTokens ?? 0) - requestBytes - imageTokens - reserve - 4096,
+    window === undefined ? Infinity : window - (native?.inputTokens ?? 0) - (native?.outputTokens ?? 0) - (selectedRequestTokens ?? requestBytes + imageTokens) - reserve - 4096,
     native === undefined ? Infinity : native.maxInputBytes - requestBytes - reserve - 4096,
     native?.maxReferenceTokens ?? Infinity))
   if (!Number.isSafeInteger(remaining)) throw new Error('引用额度尚不可确认，已保留草稿')

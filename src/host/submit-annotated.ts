@@ -156,16 +156,19 @@ export class AnnotationSubmissionCoordinator {
     const defaults = this.ctx.get('agentDefaultModel' as never) as { currentSelection(): { provider: string; model: string } } | undefined
     const selection = selectedModel(agent) ?? (agent.options.provider && agent.options.model
       ? { provider: agent.options.provider, model: agent.options.model } : defaults?.currentSelection())
-    const preparedScope = submissionBudgetScope(agent)
+    const initialScope = submissionBudgetScope(agent, true)
     let budget
     try {
       const model = selection === undefined || selection.provider === 'codex' ? undefined
         : await this.ctx.get('llm')?.resolveModelInfo(selection.provider, selection.model, signal)
       budget = await submissionReferenceBudget(this.ctx, agent, message, selection, model, signal)
+      if (initialScope !== submissionBudgetScope(agent, true)) throw new Error('会话或模型在引用准备期间改变，已保留草稿，请重试')
     } catch (error) {
       signal?.throwIfAborted()
       return { kind: 'error', code: 'source-blocked', message: errorText(error) }
     }
+    // Context selection may have durably compacted history during budgeting.
+    const preparedScope = submissionBudgetScope(agent)
     const prepared = await prepareReferenceSet(pending.pending, this.sources, {
       upstreamExecutionId: `initial:${selectedTextHash(input.clientSubmissionId)}:${crypto.randomUUID()}`,
       budget,
