@@ -2,7 +2,7 @@ import { ReferenceIcon } from './reference-icons.tsx'
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 
-import type { ReferenceItem, ReferenceSet } from '../domain/model.ts'
+import type { ReferenceSet } from '../domain/model.ts'
 import type { ClientSourceRegistry } from './source-registry.ts'
 
 export interface AnnotationDialogSnapshot {
@@ -53,13 +53,6 @@ export interface ReferenceDialogProps {
   readonly retryBacklink: (setId: string, referenceId: string) => Promise<void>
 }
 
-function sourceDescription(item: ReferenceItem): string {
-  if(item.sourceType==='dsh-message'&&item.locator.upstream)return `${item.locator.upstream.sourceTitle} · 包含截至该回复完整结束的上游 · AI 按需读取`
-  if (item.sourceType === 'dsh-message') return `${item.locator.role === 'user' ? '用户消息' : '助手回复'}`
-  const freshness = item.snapshot.freshness === 'captured' ? '已捕获' : item.snapshot.freshness === 'refreshed' ? '已刷新' : '离线快照'
-  return `${item.locator.notePath} · ${freshness}`
-}
-
 export function ReferenceDialog({ controller, sources, updateComment, remove, deleteLink, reuse, retryBacklink }: ReferenceDialogProps) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
   const layerRef = useRef<HTMLDivElement>(null)
@@ -107,11 +100,12 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, de
     return () => { cancelled = true }
   }, [snapshot.open, snapshot.set?.setId, snapshot.editable, activeReferenceId, sources])
   useLayoutEffect(() => {
-    if (!snapshot.open || !snapshot.anchor) { setPosition(undefined); return }
-    const anchor = snapshot.anchor
+    if (!snapshot.open) { setPosition(undefined); return }
     const place = () => {
+      const cards = [...document.querySelectorAll('[data-composer-card]')].map(card => card.getBoundingClientRect()).filter(rect => rect.width > 0 && rect.height > 0)
+      const anchor = snapshot.anchor ?? (cards.length === 1 ? cards[0] : undefined)
       const box = layerRef.current?.getBoundingClientRect()
-      if (!box) return
+      if (!box || !anchor) { setPosition(undefined); return }
       setPosition({ left: Math.max(8, Math.min(anchor.left, window.innerWidth - box.width - 8)),
         top: Math.max(8, anchor.top >= box.height + 16 ? anchor.top - box.height - 8 : Math.min(anchor.bottom + 8, window.innerHeight - box.height - 8)) })
     }
@@ -119,7 +113,8 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, de
     const observer = new ResizeObserver(place)
     if (layerRef.current) observer.observe(layerRef.current)
     window.addEventListener('resize', place)
-    return () => { observer.disconnect(); window.removeEventListener('resize', place) }
+    window.addEventListener('scroll', place, true)
+    return () => { observer.disconnect(); window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true) }
   }, [snapshot.open, snapshot.anchor, activeReferenceId])
   if (!snapshot.open || snapshot.set === undefined) return null
   const set = snapshot.set
@@ -136,15 +131,9 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, de
     finally { setSaving(false) }
   }
   const save = () => run(() => updateComment(activeItem.referenceId, commentRef.current?.value ?? activeItem.userComment), true)
-  const dialog = <div ref={layerRef} className="dshAnnotationFloatingLayer" style={position ? { ...position, right: 'auto', bottom: 'auto', width: 'min(460px, calc(100vw - 16px))' } : undefined}>
+  const dialog = <div ref={layerRef} className="dshAnnotationFloatingLayer" style={position ? { ...position, right: 'auto', bottom: 'auto', width: 'min(326px, calc(100vw - 16px))' } : undefined}>
     <section className="dshAnnotationDialog" data-annotation-floating-window role="dialog" aria-modal="false" aria-label={`${set.items.length} 条注释`}>
-      <header className="dshAnnotationDialogHeader">
-        <div className="dshAnnotationDialogTitle">
-          <span className="dshAnnotationDialogIcon"><ReferenceIcon name="quote" /></span>
-          <span><strong>{set.items.length} 条引用</strong></span>
-        </div>
-        <button className="dshAnnotationDialogClose" ref={closeRef} disabled={saving} type="button" onClick={() => controller.close()} aria-label="关闭注释详情"><ReferenceIcon name="close" /></button>
-      </header>
+      <button className="dshAnnotationDialogClose" ref={closeRef} disabled={saving} type="button" onClick={() => controller.close()} aria-label="关闭注释详情"><ReferenceIcon name="close" /></button>
       {set.items.length > 1 && <nav className="dshAnnotationDialogTabs" aria-label="选择注释">
         {set.items.map((item) => <button
           className="dshAnnotationDialogTab"
@@ -153,7 +142,7 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, de
           aria-pressed={item.referenceId === activeItem.referenceId}
           onClick={() => { setActiveReferenceId(item.referenceId); setError('') }}
           key={item.referenceId}
-        >{item.number} · {item.sourceType === 'obsidian-note' ? item.locator.notePath.split('/').pop() : item.locator.upstream?.sourceTitle ?? (item.locator.role === 'user' ? '用户消息' : '助手回复')}</button>)}
+        >{item.sourceType === 'obsidian-note' ? item.locator.notePath.split('/').pop() : item.locator.upstream?.sourceTitle ?? item.selectedText.slice(0, 18)}</button>)}
       </nav>}
       <div className="dshAnnotationDialogBody">
         <article
@@ -162,19 +151,15 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, de
           data-focused={snapshot.focusReferenceId === activeItem.referenceId || undefined}
           key={activeItem.referenceId}
         >
-          <div className="dshAnnotationDetailHeading">
-            <span className="dshAnnotationNumber">{activeItem.number}</span>
-            <span className="dshAnnotationSource">{sourceDescription(activeItem)}</span>
-          </div>
           <blockquote className="dshAnnotationSelected">{activeItem.selectedText}</blockquote>
           <label className="dshAnnotationCommentField">
-            <span className="dshAnnotationCommentLabel"><strong>补充说明</strong>{snapshot.editable && <small>Enter 保存 · Shift + Enter 换行</small>}</span>
+            <span className="dshAnnotationCommentLabel"><strong>注释</strong></span>
             {snapshot.editable
               ? <textarea
                   ref={commentRef}
                   className="dshAnnotationComment"
                   defaultValue={activeItem.userComment}
-                  placeholder="写下希望模型特别关注、比较或解释的内容……"
+                  placeholder="添加注释…"
                   autoFocus
                   disabled={saving}
                   onKeyDown={event => {
@@ -184,7 +169,7 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, de
                     if (event.key === 'Escape') { event.preventDefault(); if (!saving) controller.close() }
                   }}
                 />
-              : <div className="dshAnnotationCommentReadOnly">{activeItem.userComment || '没有补充说明'}</div>}
+              : <div className="dshAnnotationCommentReadOnly">{activeItem.userComment || '暂无注释'}</div>}
           </label>
           {error && <div role="alert" className="dshAnnotationBlocked">{error}</div>}
           <div className="dshAnnotationActions">
@@ -192,9 +177,8 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, de
             {snapshot.editable
               ? <>
                 <button className="dshAnnotationIconButton" type="button" disabled={saving} aria-label="删除引用" title="删除引用" onClick={() => void run(() => remove(activeItem.referenceId))}><ReferenceIcon name="trash" /></button>
-                <span className="dshAnnotationActionSpacer" />
 
-                <button className="dshAnnotationIconButton dshAnnotationSave" type="button" disabled={saving} aria-label="保存说明" title="保存说明 · Enter" onClick={() => void save()}><ReferenceIcon name="check" /></button>
+                <button className="dshAnnotationIconButton dshAnnotationSave" type="button" disabled={saving} aria-label="保存注释" title="保存注释 · Enter" onClick={() => void save()}><ReferenceIcon name="check" /></button>
               </>
               : <>
                   <button className="dshAnnotationIconButton" type="button" disabled={saving} aria-label="重新添加到当前提问" title="重新添加到当前提问" onClick={() => void run(() => reuse(activeItem.referenceId))}><ReferenceIcon name="plus" /></button>

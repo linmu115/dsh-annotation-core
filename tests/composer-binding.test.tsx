@@ -231,7 +231,8 @@ describe('shared annotation composer binding', () => {
       expect(host.getAttribute('data-layout')).toBeNull()
       expect(host.querySelectorAll('[data-annotation-chip]')).toHaveLength(1)
       expect(host.textContent).not.toMatch(/@|<dsh-annotations|\u2063/)
-      expect(host.textContent).toContain('2 条')
+      expect(host.textContent).toBe('2')
+      expect(host.querySelector('[data-annotation-chip]')?.getAttribute('aria-label')).toBe('2 条引用')
       expect(host.textContent).not.toContain('selected 1')
     }
     store.dispose()

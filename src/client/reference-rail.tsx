@@ -34,6 +34,12 @@ export function ReferenceRail({ layout, store, open, remove, jump }: ReferenceRa
   const trigger = useRef<HTMLButtonElement>(null)
   const panel = useRef<HTMLDivElement>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // The dock sits outside the native input card; use the card edge, not the chip edge.
+  const composerAnchor = () => {
+    const chip = trigger.current?.getBoundingClientRect()
+    const card = trigger.current?.closest('[data-composer-seat]')?.querySelector('[data-composer-card]')?.getBoundingClientRect()
+    return chip && card ? new DOMRect(card.left, chip.top, card.width, chip.height) : chip
+  }
   const keep = () => { clearTimeout(timer.current); expand(true) }
   const leave = () => { clearTimeout(timer.current); timer.current = setTimeout(() => {
     if (!panel.current?.contains(document.activeElement) && document.activeElement !== trigger.current) expand(false)
@@ -42,7 +48,7 @@ export function ReferenceRail({ layout, store, open, remove, jump }: ReferenceRa
   useLayoutEffect(() => {
     if (!expanded) return
     const place = () => {
-      const anchor = trigger.current?.getBoundingClientRect(), box = panel.current?.getBoundingClientRect()
+      const anchor = composerAnchor(), box = panel.current?.getBoundingClientRect()
       if (!anchor || !box) return
       setPosition({ left: Math.max(8, Math.min(anchor.left, window.innerWidth - box.width - 8)),
         top: Math.max(8, anchor.top >= box.height + 16 ? anchor.top - box.height - 8 : Math.min(anchor.bottom + 8, window.innerHeight - box.height - 8)) })
@@ -70,16 +76,16 @@ export function ReferenceRail({ layout, store, open, remove, jump }: ReferenceRa
     return snapshot.status === 'blocked' ? <div className="dshAnnotationBlocked" role="status">引用暂不可用，请稍后重试</div> : null
   }
   return <div className={`dshAnnotationRail ${layout}`} aria-label="待发送引用">
-    <button ref={trigger} className="dshAnnotationCount" type="button" data-annotation-chip aria-expanded={expanded} aria-haspopup="dialog"
+    <button ref={trigger} className="dshAnnotationCount" type="button" data-annotation-chip aria-label={`${set.items.length} 条引用`} aria-expanded={expanded} aria-haspopup="dialog"
       onMouseEnter={keep} onMouseLeave={leave} onFocus={() => { if (!suppressFocus.current) keep() }} onBlur={leave} onClick={keep}>
-      <ReferenceIcon name="quote" /><span>{set.items.length} 条</span>
+      <ReferenceIcon name="quote" /><span>{set.items.length}</span>
     </button>
     {expanded && createPortal(<div ref={panel} className="dshAnnotationPopover" style={position} role="dialog" aria-label="待发送引用列表"
       onMouseEnter={keep} onMouseLeave={leave} onFocus={keep} onBlur={leave}>
       {set.items.map(item => <article className="dshAnnotationListItem" key={item.referenceId}>
         <div className="dshAnnotationListHeading"><span className="dshAnnotationSource">{item.number}. {sourceLabel(set, item.referenceId)}</span>
           <div className="dshAnnotationRowActions">
-            <button type="button" className="dshAnnotationIconButton" aria-label={`编辑引用 ${item.number}`} title="编辑评论" disabled={busy} onClick={() => { expand(false); open(set, item.referenceId, trigger.current?.getBoundingClientRect()) }}><ReferenceIcon name="edit" /></button>
+            <button type="button" className="dshAnnotationIconButton" aria-label={`编辑引用 ${item.number}`} title="编辑注释" disabled={busy} onClick={() => { expand(false); open(set, item.referenceId, composerAnchor()) }}><ReferenceIcon name="edit" /></button>
             {jump && <button type="button" className="dshAnnotationIconButton" aria-label={`跳转到引用 ${item.number}`} title="跳转到引用位置" disabled={busy} onClick={() => void run(() => jump(item))}><ReferenceIcon name="jump" /></button>}
             <button type="button" className="dshAnnotationIconButton" aria-label={`删除引用 ${item.number}`} title="删除引用" disabled={busy} onClick={() => void run(() => remove(item.referenceId))}><ReferenceIcon name="trash" /></button>
           </div>

@@ -22,7 +22,7 @@ export function AnnotationConversationNode({ count, getCount, subscribeCount, op
   if (liveCount < 1) return null
   return <div className="dshAnnotationSentRow">
     <button className="dshAnnotationSentPill sentPill" type="button" onClick={open} aria-label={`打开 ${liveCount} 条注释`}>
-      {liveCount} 条注释
+      {liveCount}
     </button>
   </div>
 }

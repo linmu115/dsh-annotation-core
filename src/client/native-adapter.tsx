@@ -49,7 +49,7 @@ function NativeAnnotationRail(props: NativeRailProps) {
     props.nativeInput.beginCommand(claim, { start: 0, end: 0, draftRev: props.input.draftRev })
   }, [handle, props.input.draftRev, props.input.phase, props.nativeInput, snapshot.pendingCount, snapshot.transport])
 
-  return <>{handle.renderReferenceRail()}</>
+  return <div className="dshAnnotationNativeDock"><div className="dshAnnotationNativeDockInner">{handle.renderReferenceRail()}</div></div>
 }
 
 interface AnnotationNodeProps {

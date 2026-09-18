@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AnnotationDialogController, ReferenceDialog } from '../src/client/reference-dialog.tsx'
 import { ClientSourceRegistry } from '../src/client/source-registry.ts'
@@ -9,10 +9,12 @@ import type { ReferenceSet } from '../src/domain/model.ts'
 import { selectedTextHash } from '../src/protocol/index.ts'
 
 const roots: ReturnType<typeof createRoot>[] = []
+beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} }))
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 afterEach(() => {
   for (const root of roots.splice(0)) act(() => root.unmount())
   document.body.replaceChildren()
+  vi.unstubAllGlobals()
 })
 
 function pendingSet(): ReferenceSet {
@@ -64,7 +66,7 @@ describe('floating annotation details', () => {
 
     await act(async () => (document.querySelector('[aria-label="查看注释 2"]') as HTMLButtonElement).click())
     const textarea = document.querySelector('textarea') as HTMLTextAreaElement
-    expect(textarea.placeholder).toContain('希望模型特别关注')
+    expect(textarea.placeholder).toBe('添加注释…')
     await act(async () => {
       textarea.focus()
       textarea.value = 'new note'
@@ -99,7 +101,7 @@ describe('floating annotation details', () => {
     await act(async () => controller.open(pendingSet(), 'reference-1'))
     expect(document.querySelector('textarea')!.value).toBe('existing note')
     document.querySelector('textarea')!.value = 'save me'
-    const save = document.querySelector<HTMLButtonElement>('[aria-label="保存说明"]')!
+    const save = document.querySelector<HTMLButtonElement>('[aria-label="保存注释"]')!
     await act(async () => { save.dispatchEvent(new Event('pointerdown', { bubbles: true })); save.click() })
     expect(updateComment).toHaveBeenCalledWith('reference-1', 'save me')
   })
@@ -112,7 +114,7 @@ describe('floating annotation details', () => {
     await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="查看注释 1"]')!.click())
     expect(document.querySelector('textarea')!.value).toBe('existing note')
     document.querySelector('textarea')!.value = 'retry me'
-    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="保存说明"]')!.click())
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="保存注释"]')!.click())
     expect(document.querySelector('textarea')!.value).toBe('retry me')
     expect(document.querySelector('[role="alert"]')!.textContent).toContain('synthetic save failure')
   })

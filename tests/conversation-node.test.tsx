@@ -43,7 +43,8 @@ describe('annotation conversation projection', () => {
     const host = document.createElement('div'); document.body.append(host)
     const root = createRoot(host); roots.push(root)
     await act(async () => root.render(<AnnotationConversationNode count={2} open={() => undefined} />))
-    expect(host.textContent).toBe('2 条注释')
+    expect(host.textContent).toBe('2')
+    expect(host.querySelector('button')?.getAttribute('aria-label')).toBe('打开 2 条注释')
     expect(host.querySelector('button')?.className).toContain('sentPill')
   })
 
