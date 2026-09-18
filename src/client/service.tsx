@@ -1,3 +1,4 @@
+import { ReferenceHighlights, ReferenceHighlightStore, referenceRange } from './reference-highlights.tsx'
 import { SelectionActions, type SelectionAction } from './selection-actions.ts'
 import { Service } from '@deepseek-ai/cordis'
 import { chooseCrossSession } from './cross-session-picker.tsx'
@@ -187,6 +188,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
   readonly selectionActions = new SelectionActions()
   registerSelectionAction(action: SelectionAction): () => void { return this.selectionActions.register(action) }
   readonly sources = new ClientSourceRegistry()
+  private readonly highlights = new ReferenceHighlightStore()
   readonly dialog = new AnnotationDialogController()
   private readonly sent = new Map<string, Map<string, ReferenceSet>>()
   private readonly sentSummaries = new Map<string, Map<string, number>>()
@@ -196,6 +198,38 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     super(ctx, 'annotationCore')
     ctx.effect(()=>()=>this.lifetime.abort(),'annotation-core.crossSessionPicker')
     if (config.profileId.trim().length === 0) throw new TypeError('profileId must not be empty')
+  }
+
+  private resolveDshAnchor(item: ReferenceItem): string {
+    if (item.sourceType !== 'dsh-message') return ''
+    const conversation = this.ctx.get('uiConversation') as unknown as { binding(id: string): { target(name: string): { getSnapshot(): { order: readonly string[]; nodes: { get(key: string): { id?: string } | undefined } } } } }
+    const snapshot = conversation.binding(item.locator.sessionId).target('chat').getSnapshot()
+    return snapshot.nodes.get(item.locator.anchorId) ? item.locator.anchorId : snapshot.order.find(key => snapshot.nodes.get(key)?.id === item.locator.anchorId) ?? item.locator.anchorId
+  }
+
+  async openDshSource(item: ReferenceItem): Promise<void> {
+    if (item.sourceType !== 'dsh-message') return
+    const sessions = this.ctx.get('sessions') as unknown as { open(id: string): void; list: { getSnapshot(): { current?: string } } }
+    if (sessions.list.getSnapshot().current !== item.locator.sessionId) sessions.open(item.locator.sessionId)
+    const deadline = Date.now() + 3000
+    while (!this.lifetime.signal.aborted && Date.now() < deadline) {
+      if (sessions.list.getSnapshot().current !== item.locator.sessionId) throw new Error('会话已切换，已取消定位')
+      const key = this.resolveDshAnchor(item)
+      const element = document.querySelector<HTMLElement>(`[data-chat-anchor-key="${CSS.escape(key)}"]`)
+      if (element) {
+        element.scrollIntoView({ block: 'center', behavior: 'instant' })
+        const range = referenceRange(element, item.selectedText, item.locator.occurrence)
+        const rect = range?.getBoundingClientRect()
+        if (rect) {
+          let parent = element.parentElement
+          while (parent && !(parent.scrollHeight > parent.clientHeight && /auto|scroll/.test(getComputedStyle(parent).overflowY))) parent = parent.parentElement
+          if (parent) { const bounds = parent.getBoundingClientRect(); parent.scrollBy({ top: rect.top - bounds.top - bounds.height / 2, behavior: 'instant' }) }
+        }
+        return
+      }
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    throw new Error('原文位置暂未加载，请在来源会话中重试')
   }
 
   private remote(sessionId: string): AnnotationCoreRemoteNamespace { return annotationRemoteForSession(this.ctx, sessionId) }
@@ -298,9 +332,12 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
 
   bindComposer(input: { sessionId: string; layout: 'default' | 'narrow'; plainPort?: PlainComposerPort }): ComposerBinding {
     const remote = this.remote(input.sessionId)
+    const highlightOwner = id('composer')
     let binding: ComposerBinding
     binding = createComposerBinding({
       ...input, remote,
+      onReferences: set => this.highlights.update(highlightOwner, set),
+      onDispose: () => this.highlights.update(highlightOwner, null),
       onJump: async item => {
         const source = this.sources.forItem(item)
         if (!source) throw new Error('引用来源暂不可用')
@@ -335,7 +372,9 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
       const set = this.dialogSet()
       return { set, sessionId: set.sessionId, remote: this.remote(set.sessionId) }
     }
-    return <ReferenceDialog
+    const sessions = this.ctx.get('sessions') as unknown as { list: { getSnapshot(): { current?: string }; subscribe(listener: () => void): () => void } }
+    return <><ReferenceHighlights store={this.highlights} currentSession={() => sessions.list.getSnapshot().current}
+      subscribeSession={listener => sessions.list.subscribe(listener)} resolveAnchor={item => this.resolveDshAnchor(item)} /><ReferenceDialog
       controller={this.dialog} sources={this.sources}
       updateComment={async (referenceId, comment) => {
         const { set, sessionId, remote } = target()
@@ -369,7 +408,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
         const sent = unwrapRemote(await remote.readSentSet(setId))
         if (sent !== null) { this.rememberSent(sessionId, sent); this.dialog.open(sent, referenceId) }
       }}
-    />
+    /></>
   }
 
   renderConversationNode(input: { sessionId: string; node: unknown; layout: 'default' | 'narrow' }): { key: string; node: React.ReactNode } | undefined {
@@ -424,6 +463,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
   private rememberSent(sessionId: string, set: ReferenceSet): void {
     const bySet = this.sent.get(sessionId) ?? new Map<string, ReferenceSet>(); bySet.set(set.setId, set); this.sent.set(sessionId, bySet)
     const summaries = this.sentSummaries.get(sessionId) ?? new Map<string, number>(); summaries.set(set.setId, set.items.length); this.sentSummaries.set(sessionId, summaries)
+    this.highlights.update(`sent:${sessionId}:${set.setId}`, set)
     this.emitSent(sessionId, set.setId)
   }
 
@@ -432,6 +472,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     const summaries = this.sentSummaries.get(sessionId) ?? new Map<string, number>()
     summaries.set(setId, 0)
     this.sentSummaries.set(sessionId, summaries)
+    this.highlights.update(`sent:${sessionId}:${setId}`, null)
     this.emitSent(sessionId, setId)
   }
 

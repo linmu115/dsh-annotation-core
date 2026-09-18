@@ -160,6 +160,8 @@ export interface ComposerBindingOptions {
   readonly plainPort?: PlainComposerPort
   readonly onOpen?: (set: ReferenceSet, referenceId?: string, anchor?: DOMRect) => void
   readonly onJump?: (item: ReferenceItem) => Promise<void>
+  readonly onReferences?: (set: ReferenceSet | null) => void
+  readonly onDispose?: () => void
   readonly onRemove?: (referenceId: string) => Promise<void>
 }
 
@@ -187,7 +189,7 @@ export class ComposerBinding implements EmbeddedComposerHandle {
     this.ownStore = options.store === undefined
     this.visibleDraft = options.plainPort?.getSnapshot().draft ?? ''
     this.snapshot = Object.freeze(this.buildSnapshot())
-    this.unsubscribeStore = this.store.subscribe(() => this.emit())
+    this.unsubscribeStore = this.store.subscribe(() => { this.options.onReferences?.(this.store.getSnapshot().pending); this.emit() })
     this.unsubscribePlain = options.plainPort?.subscribe(() => {
       this.visibleDraft = options.plainPort?.getSnapshot().draft ?? this.visibleDraft
       this.emit()
@@ -402,6 +404,7 @@ export class ComposerBinding implements EmbeddedComposerHandle {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.options.onDispose?.()
     this.unsubscribeStore()
     this.unsubscribePlain?.()
     if (this.ownStore) this.store.dispose()

@@ -86,4 +86,35 @@ describe('floating annotation details', () => {
     await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
     expect(document.querySelector('[data-annotation-floating-window]')).toBeNull()
   })
+  it('discards on an outside pointerdown but internal save keeps the edited value', async () => {
+    const controller = new AnnotationDialogController()
+    const updateComment = vi.fn(() => Promise.resolve())
+    renderDialog(controller, updateComment)
+    await act(async () => controller.open(pendingSet(), 'reference-1'))
+    const input = document.querySelector('textarea')!
+    input.value = 'discard me'
+    await act(async () => document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })))
+    expect(controller.getSnapshot().open).toBe(false)
+    expect(updateComment).not.toHaveBeenCalled()
+    await act(async () => controller.open(pendingSet(), 'reference-1'))
+    expect(document.querySelector('textarea')!.value).toBe('existing note')
+    document.querySelector('textarea')!.value = 'save me'
+    const save = document.querySelector<HTMLButtonElement>('[aria-label="保存说明"]')!
+    await act(async () => { save.dispatchEvent(new Event('pointerdown', { bubbles: true })); save.click() })
+    expect(updateComment).toHaveBeenCalledWith('reference-1', 'save me')
+  })
+  it('discards the draft when switching references and keeps a failed save editable', async () => {
+    const controller = new AnnotationDialogController()
+    renderDialog(controller, vi.fn(() => Promise.reject(new Error('synthetic save failure'))))
+    await act(async () => controller.open(pendingSet(), 'reference-1'))
+    document.querySelector('textarea')!.value = 'draft'
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="查看注释 2"]')!.click())
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="查看注释 1"]')!.click())
+    expect(document.querySelector('textarea')!.value).toBe('existing note')
+    document.querySelector('textarea')!.value = 'retry me'
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="保存说明"]')!.click())
+    expect(document.querySelector('textarea')!.value).toBe('retry me')
+    expect(document.querySelector('[role="alert"]')!.textContent).toContain('synthetic save failure')
+  })
+
 })

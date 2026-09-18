@@ -114,3 +114,19 @@
 .dshAnnotationActionSpacer { flex:1; }
 .dshAnnotationCount:focus-visible,.dshAnnotationIconButton:focus-visible,.dshAnnotationAction:focus-visible,.dshAnnotationComment:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
 .dshAnnotationPopover button:disabled,.dshAnnotationDialog button:disabled { opacity:.5; cursor:wait; }
+
+/* Confirmed single-surface editor and quiet circular actions. */
+.dshAnnotationDialog { background:var(--dsw-alias-bg-layer-0,var(--color-background,#fff)); box-shadow:0 8px 28px #00000012; border-radius:14px; backdrop-filter:none; }
+.dshAnnotationSelected { border:0; border-left:2px solid color-mix(in srgb,currentColor 14%,transparent); border-radius:0; background:transparent; padding:2px 12px; }
+.dshAnnotationComment,.dshAnnotationComment:hover,.dshAnnotationComment:focus { border:0; border-radius:0; background:transparent; padding:8px 0; box-shadow:none; }
+.dshAnnotationComment:focus { outline:none; border-bottom:1px solid color-mix(in srgb,currentColor 22%,transparent); }
+.dshAnnotationDialogTab { width:auto; max-width:200px; padding:0 9px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; }
+.dshAnnotationDialogTab[aria-pressed="true"] { color:inherit; background:color-mix(in srgb,currentColor 8%,transparent); }
+.dshAnnotationDialogIcon { color:inherit; background:transparent; }
+.dshAnnotationIconButton,.dshAnnotationDialogClose { border:0; border-radius:50%; background:color-mix(in srgb,currentColor 4%,transparent); transition:background .15s,transform .15s; }
+.dshAnnotationIconButton:hover { background:color-mix(in srgb,currentColor 9%,transparent); }
+.dshAnnotationIconButton:active { transform:scale(.94); }
+.dshAnnotationIconButton.dshAnnotationSave { margin-left:auto; background:#171717; color:#fff; width:32px; height:32px; }
+@media(prefers-reduced-motion:reduce) { .dshAnnotationIconButton { transition:none; } }
+
+::highlight(dsh-core-references) { background:rgba(128,128,128,.22); }

@@ -55,7 +55,7 @@ export interface ReferenceDialogProps {
 
 function sourceDescription(item: ReferenceItem): string {
   if(item.sourceType==='dsh-message'&&item.locator.upstream)return `${item.locator.upstream.sourceTitle} · 包含截至该回复完整结束的上游 · AI 按需读取`
-  if (item.sourceType === 'dsh-message') return `${item.locator.role === 'user' ? '用户' : '助手'}消息 · ${item.locator.sessionId}`
+  if (item.sourceType === 'dsh-message') return `${item.locator.role === 'user' ? '用户消息' : '助手回复'}`
   const freshness = item.snapshot.freshness === 'captured' ? '已捕获' : item.snapshot.freshness === 'refreshed' ? '已刷新' : '离线快照'
   return `${item.locator.notePath} · ${freshness}`
 }
@@ -88,6 +88,24 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, de
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [controller, snapshot.open, saving])
+  useEffect(() => {
+    if (!snapshot.open) return
+    const outside = (event: PointerEvent) => {
+      if (!saving && !layerRef.current?.contains(event.target as Node)) controller.close()
+    }
+    document.addEventListener('pointerdown', outside)
+    return () => document.removeEventListener('pointerdown', outside)
+  }, [controller, snapshot.open, saving])
+  useEffect(() => {
+    const item = snapshot.set?.items.find(item => item.referenceId === activeReferenceId)
+    if (!snapshot.open || !snapshot.editable || item?.sourceType !== 'dsh-message' || item.locator.sessionId !== snapshot.set?.sessionId) return
+    let cancelled = false
+    const source = sources.forItem(item)
+    if (source) void source.openSource(item).then(() => {
+      if (!cancelled) commentRef.current?.focus({ preventScroll: true })
+    }).catch(cause => { if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause)) })
+    return () => { cancelled = true }
+  }, [snapshot.open, snapshot.set?.setId, snapshot.editable, activeReferenceId, sources])
   useLayoutEffect(() => {
     if (!snapshot.open || !snapshot.anchor) { setPosition(undefined); return }
     const anchor = snapshot.anchor
@@ -123,9 +141,9 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, de
       <header className="dshAnnotationDialogHeader">
         <div className="dshAnnotationDialogTitle">
           <span className="dshAnnotationDialogIcon"><ReferenceIcon name="quote" /></span>
-          <span><strong>{set.items.length} 条引用</strong><small>引用与评论</small></span>
+          <span><strong>{set.items.length} 条引用</strong></span>
         </div>
-        <button className="dshAnnotationDialogClose" ref={closeRef} disabled={saving} type="button" onClick={() => controller.close()} aria-label="关闭注释详情">×</button>
+        <button className="dshAnnotationDialogClose" ref={closeRef} disabled={saving} type="button" onClick={() => controller.close()} aria-label="关闭注释详情"><ReferenceIcon name="close" /></button>
       </header>
       {set.items.length > 1 && <nav className="dshAnnotationDialogTabs" aria-label="选择注释">
         {set.items.map((item) => <button
@@ -133,9 +151,9 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, de
           type="button"
           disabled={saving} aria-label={`查看注释 ${item.number}`}
           aria-pressed={item.referenceId === activeItem.referenceId}
-          onClick={() => setActiveReferenceId(item.referenceId)}
+          onClick={() => { setActiveReferenceId(item.referenceId); setError('') }}
           key={item.referenceId}
-        >{item.number}</button>)}
+        >{item.number} · {item.sourceType === 'obsidian-note' ? item.locator.notePath.split('/').pop() : item.locator.upstream?.sourceTitle ?? (item.locator.role === 'user' ? '用户消息' : '助手回复')}</button>)}
       </nav>}
       <div className="dshAnnotationDialogBody">
         <article
@@ -175,17 +193,17 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, de
               ? <>
                 <button className="dshAnnotationIconButton" type="button" disabled={saving} aria-label="删除引用" title="删除引用" onClick={() => void run(() => remove(activeItem.referenceId))}><ReferenceIcon name="trash" /></button>
                 <span className="dshAnnotationActionSpacer" />
-                <button className="dshAnnotationAction" type="button" disabled={saving} onClick={() => controller.close()}>取消</button>
-                <button className="dshAnnotationAction primary" type="button" disabled={saving} onClick={() => void save()}>{saving ? '保存中…' : '保存'}</button>
+
+                <button className="dshAnnotationIconButton dshAnnotationSave" type="button" disabled={saving} aria-label="保存说明" title="保存说明 · Enter" onClick={() => void save()}><ReferenceIcon name="check" /></button>
               </>
               : <>
-                  <button className="dshAnnotationAction primary" type="button" onClick={() => void reuse(activeItem.referenceId)}>重新添加到当前提问</button>
-                  <button className="dshAnnotationAction danger" type="button" onClick={() => {
+                  <button className="dshAnnotationIconButton" type="button" disabled={saving} aria-label="重新添加到当前提问" title="重新添加到当前提问" onClick={() => void run(() => reuse(activeItem.referenceId))}><ReferenceIcon name="plus" /></button>
+                  <button className="dshAnnotationIconButton" aria-label="解除双向引用" title="解除双向引用" type="button" onClick={() => {
                     if (!globalThis.confirm('删除这条双向引用？DSH 中已发送的历史消息不会被改写，但双方的引用关系和 Obsidian 生成块都会删除。')) return
                     void deleteLink(set.setId, activeItem.referenceId)
-                  }}>删除双向引用</button>
+                  }}><ReferenceIcon name="unlink" /></button>
                 </>}
-            {!snapshot.editable && activeItem.backlinkState === 'failed' && <button className="dshAnnotationAction" type="button" onClick={() => void retryBacklink(set.setId, activeItem.referenceId)}>重试回链</button>}
+            {!snapshot.editable && activeItem.backlinkState === 'failed' && <button className="dshAnnotationIconButton" type="button" disabled={saving} aria-label="重试回链" title="重试回链" onClick={() => void run(() => retryBacklink(set.setId, activeItem.referenceId))}><ReferenceIcon name="retry" /></button>}
           </div>
         </article>
       </div>

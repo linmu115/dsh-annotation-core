@@ -23,6 +23,7 @@ export async function apply(ctx: Context, config?: ClientConfig): Promise<void> 
   // Publish on that top-level plugin context so independently loaded consumers
   // (Sticker Board and Sidechat) can resolve annotationCore as sibling plugins.
   const service = new AnnotationCoreClientService(ctx, normalized)
+  ctx.effect(() => service.registerSourceAdapter('dsh-message', { openSource: item => service.openDshSource(item) }), 'dsh-annotation-core: message source')
   ctx.effect(() => {
     const host = document.createElement('div')
     host.dataset.dshAnnotationDialogHost = ''
