@@ -278,6 +278,11 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     notifyReferenceChange(sessionId)
   }
 
+  async openPendingComment(sessionId: string, referenceId: string): Promise<void> {
+    const state = unwrapRemote(await this.remote(sessionId).readPending())
+    if (state.pending?.items.some(item => item.referenceId === referenceId)) this.dialog.open(state.pending, referenceId)
+  }
+
   async updateComment(sessionId: string, referenceId: string, comment: string): Promise<void> {
     const remote = this.remote(sessionId); const state = unwrapRemote(await remote.readPending())
     unwrapRemote(await remote.updateComment({ expectedRevision: state.revision, referenceId, comment }))

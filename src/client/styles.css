@@ -12,9 +12,10 @@
 .dshAnnotationFloatingLayer { position:fixed; top:clamp(72px,11vh,124px); right:18px; z-index:2147483100; width:min(326px,calc(100vw - 16px)); pointer-events:none; }
 .dshAnnotationDialog,.dshAnnotationPopover { box-sizing:border-box; border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.1)); border-radius:14px; background:var(--dsw-alias-bg-layer-0,var(--color-background,#fff)); color:var(--dsw-alias-label-primary,#202123); box-shadow:0 8px 28px #00000012; font:13px/1.55 var(--dsw-font-family,system-ui,sans-serif); }
 .dshAnnotationDialog { position:relative; max-height:calc(100dvh - 16px); overflow:hidden; pointer-events:auto; }
-.dshAnnotationDialog .dshAnnotationDialogBody { overflow:auto; overscroll-behavior:contain; max-height:calc(100dvh - 64px); padding:34px 10px 10px; }
+.dshAnnotationDialog .dshAnnotationDialogBody { overflow:auto; overscroll-behavior:contain; max-height:calc(100dvh - 64px); padding:10px; }
 .dshAnnotationDialog .dshAnnotationDialogTabs { display:flex; gap:6px; overflow:auto; margin:0 34px 0 0; padding:8px 10px 0; scrollbar-width:thin; }
 .dshAnnotationDialog .dshAnnotationDialogTabs + .dshAnnotationDialogBody { padding-top:10px; }
+.dshAnnotationDialog:not(:has(.dshAnnotationDialogTabs)) .dshAnnotationSelected { margin-right:30px; min-height:26px; }
 .dshAnnotationDialogTab { flex:0 0 auto; height:28px; max-width:180px; padding:0 9px; border:0; border-radius:9px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; background:transparent; color:inherit; font:inherit; font-size:12px; cursor:pointer; }
 .dshAnnotationDialogTab[aria-pressed="true"] { background:color-mix(in srgb,currentColor 8%,transparent); font-weight:600; }
 .dshAnnotationDetail { display:grid; gap:8px; }
