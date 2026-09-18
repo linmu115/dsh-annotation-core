@@ -52,6 +52,19 @@ function remote(initial: ReferenceSet | null = set()) {
 }
 
 describe('shared annotation composer binding', () => {
+  it('submits a blank draft with pending references, but never as an empty plain claim', async () => {
+    const api = remote()
+    const binding = createComposerBinding({ sessionId: 'session-1', layout: 'narrow', remote: api.value })
+    await binding.store.ready()
+    expect(await binding.submitClaim('', [])).toEqual({ kind: 'success' })
+    expect(api.calls.annotated.mock.calls[0]?.[0].text).toBe('')
+    expect(api.calls.plain).not.toHaveBeenCalled()
+    api.publish(null)
+    await binding.store.refresh()
+    expect((await binding.submitClaim('', [])).kind).toBe('error')
+    expect(api.calls.plain).not.toHaveBeenCalled()
+    binding.dispose()
+  })
   it('submits the latest two references even when the composer stream still shows one', async () => {
     const fake = remote(set(1)), store = new ReferenceSessionStore(fake.value)
     await store.ready()
@@ -216,10 +229,10 @@ describe('shared annotation composer binding', () => {
       const root = createRoot(host); roots.push(root)
       await act(async () => root.render(<ReferenceRail layout={layout} store={store} open={() => undefined} remove={() => Promise.resolve()} />))
       expect(host.getAttribute('data-layout')).toBeNull()
-      expect(host.querySelectorAll('[data-annotation-chip]')).toHaveLength(2)
-      expect(host.textContent).toContain('selected 1')
+      expect(host.querySelectorAll('[data-annotation-chip]')).toHaveLength(1)
       expect(host.textContent).not.toMatch(/@|<dsh-annotations|\u2063/)
-      expect(host.querySelector('[aria-label="删除注释 1"]')).not.toBeNull()
+      expect(host.textContent).toContain('2 条')
+      expect(host.textContent).not.toContain('selected 1')
     }
     store.dispose()
   })
@@ -252,7 +265,7 @@ describe('shared annotation composer binding', () => {
     await expect(binding.submitClaim('ordinary', [])).resolves.toEqual({ kind: 'success' })
     expect(fake.calls.annotated).not.toHaveBeenCalled()
     expect(fake.calls.plain).toHaveBeenCalledTimes(1)
-    await expect(binding.submitClaim('', [])).resolves.toMatchObject({ kind: 'error', text: '请输入正文' })
+    await expect(binding.submitClaim('', [])).resolves.toMatchObject({ kind: 'error', text: '请输入正文或添加引用' })
     binding.dispose()
   })
 

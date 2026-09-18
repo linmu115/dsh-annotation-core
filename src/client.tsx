@@ -1,3 +1,4 @@
+import { applyNativeSelection } from './client/selection-toolbar.tsx'
 import type { Context } from './context-types.ts'
 import { createRoot } from 'react-dom/client'
 
@@ -34,4 +35,5 @@ export async function apply(ctx: Context, config?: ClientConfig): Promise<void> 
     }
   }, 'dsh-annotation-core: global dialog')
   applyNativeClient(ctx)
+  applyNativeSelection(ctx, service)
 }

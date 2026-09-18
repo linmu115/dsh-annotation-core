@@ -12,7 +12,7 @@ describe('alpha.1 client service scope', () => {
     const disposeRemote = vi.fn(async () => undefined)
     root.provide('remote', { $mount: vi.fn(async () => disposeRemote) })
     root.provide('sessions', {
-      list: { getSnapshot: () => ({ current: undefined }) },
+      list: { getSnapshot: () => ({ current: undefined }), subscribe: () => () => {} },
       binding: () => undefined,
     })
     root.provide('conversation', { input: { for: () => ({ beginCommand: () => false }) } })
@@ -37,7 +37,8 @@ describe('alpha.1 client service scope', () => {
     })
     await consumer
 
-    expect(injected).toMatchObject({ version: '0.3.4' })
+    expect(injected).toMatchObject({ version: '0.3.4', features: expect.arrayContaining(['native-selection-actions-v1']), registerSelectionAction: expect.any(Function) })
+    expect(document.querySelector('[data-dsh-core-selection]')).not.toBeNull()
     expect(document.querySelector('[data-dsh-annotation-dialog-host]')).not.toBeNull()
 
     await consumer.dispose()

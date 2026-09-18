@@ -9,7 +9,11 @@ import type {
   SourceType,
 } from '../protocol/index.ts'
 
+export type { SelectionAction } from '../client/selection-actions.ts'
+import type { SelectionAction } from '../client/selection-actions.ts'
+
 export type AnnotationCoreFeature =
+  | 'native-selection-actions-v1'
   | 'session-main-graph-v2'
   | 'graph-reference-actions-v1'
   | 'cross-session-upstream-v1'
@@ -62,6 +66,8 @@ export interface EmbeddedComposerHandle {
 }
 
 export interface AnnotationCoreClient {
+  /** Register an action in the single native selection toolbar. Dispose with the consumer. */
+  registerSelectionAction(action: SelectionAction): () => void
   /** Opens the real target and adopts existing fixed incoming references without recapturing newer history. */
   prepareGraphReferences?(targetSessionId: string, referenceIds: readonly string[]): Promise<{ preparedCount: number }>
   openCrossSessionReference?(capture:DshMessageCapture):Promise<void>

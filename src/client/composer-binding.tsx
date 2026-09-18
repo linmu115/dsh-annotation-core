@@ -3,7 +3,7 @@ import { submissionAttachmentFields, type SubmissionAttachment } from '../protoc
 import type { SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import type * as React from 'react'
 
-import type { ReferenceSet } from '../domain/model.ts'
+import type { ReferenceItem, ReferenceSet } from '../domain/model.ts'
 import { submissionRequestDigest } from '../protocol/serialization.ts'
 import type { EmbeddedComposerHandle, EmbeddedComposerSnapshot, PlainComposerPort } from '../public/client-api.ts'
 import type { AnnotationCoreRemoteNamespace } from '../remote/client.ts'
@@ -158,7 +158,8 @@ export interface ComposerBindingOptions {
   readonly remote: AnnotationCoreRemoteNamespace
   readonly store?: ReferenceSessionStore
   readonly plainPort?: PlainComposerPort
-  readonly onOpen?: (set: ReferenceSet, referenceId?: string) => void
+  readonly onOpen?: (set: ReferenceSet, referenceId?: string, anchor?: DOMRect) => void
+  readonly onJump?: (item: ReferenceItem) => Promise<void>
   readonly onRemove?: (referenceId: string) => Promise<void>
 }
 
@@ -205,7 +206,7 @@ export class ComposerBinding implements EmbeddedComposerHandle {
     return {
       visibleDraft: this.options.plainPort?.getSnapshot().draft ?? this.visibleDraft,
       pendingCount,
-      canSubmit: !blocked && this.commitState !== 'committing',
+      canSubmit: !blocked && this.commitState !== 'committing' && (pendingCount > 0 || (this.options.plainPort?.getSnapshot().draft ?? this.visibleDraft).trim().length > 0),
       commitState: this.commitState,
       ...(this.error === undefined ? {} : { error: this.error }),
       transport,
@@ -294,7 +295,6 @@ export class ComposerBinding implements EmbeddedComposerHandle {
   ): Promise<SubmitOutcome> {
     if (this.disposed) return { kind: 'error', text: '会话输入框已切换，请在当前输入框重试' }
     if (this.commitState === 'committing') return { kind: 'error', text: '正在提交，请勿重复发送' }
-    if (text.trim().length === 0) return { kind: 'error', text: images.length === 0 ? '请输入正文' : '先输入正文' }
     const fields = submissionAttachmentFields(images)
     const requestDigest = submissionRequestDigest({ text, ...fields })
     this.beginCommit()
@@ -316,6 +316,7 @@ export class ComposerBinding implements EmbeddedComposerHandle {
       if (this.disposed) throw new Error('会话输入框已切换，已保留本次输入，请重试')
       if (state.status !== 'ready') throw new Error(state.error ?? '注释内核状态未知，已保留本次输入')
       const pending = state.pending
+      if (!text.trim() && !pending?.items.length) throw new Error('请输入正文或添加引用')
       const result = pending !== null && pending.items.length > 0
         ? unwrapRemote(await this.options.remote.submitAnnotated({
             expectedRevision: state.revision,
@@ -390,9 +391,10 @@ export class ComposerBinding implements EmbeddedComposerHandle {
 
   renderReferenceRail(): React.ReactNode {
     return <ReferenceRail
+      jump={this.options.onJump}
       layout={this.options.layout}
       store={this.store}
-      open={(set, referenceId) => this.options.onOpen?.(set, referenceId)}
+      open={(set, referenceId, anchor) => this.options.onOpen?.(set, referenceId, anchor)}
       remove={this.options.onRemove ?? (async () => { throw new Error('Reference mutation is unavailable') })}
     />
   }

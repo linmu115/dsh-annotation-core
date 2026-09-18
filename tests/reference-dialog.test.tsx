@@ -56,7 +56,7 @@ describe('floating annotation details', () => {
     expect(document.body.textContent).not.toContain('first selected text')
   })
 
-  it('switches annotations in place and saves the polished comment field on blur', async () => {
+  it('switches annotations in place and saves only on Enter, preserving the draft across blur', async () => {
     const controller = new AnnotationDialogController()
     const updateComment = vi.fn(() => Promise.resolve())
     renderDialog(controller, updateComment)
@@ -70,7 +70,13 @@ describe('floating annotation details', () => {
       textarea.value = 'new note'
       textarea.blur()
     })
+    expect(updateComment).not.toHaveBeenCalled()
+    await act(async () => textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true })))
+    await act(async () => textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })))
+    expect(updateComment).not.toHaveBeenCalled()
+    await act(async () => textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
     expect(updateComment).toHaveBeenCalledWith('reference-2', 'new note')
+    expect(document.querySelector('textarea')).toBeNull()
   })
 
   it('closes with Escape without placing a page-wide click blocker', async () => {

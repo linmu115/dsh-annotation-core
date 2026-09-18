@@ -1,3 +1,4 @@
+import { SelectionActions, type SelectionAction } from './selection-actions.ts'
 import { Service } from '@deepseek-ai/cordis'
 import { chooseCrossSession } from './cross-session-picker.tsx'
 import { sessionTargetTitle } from './session-target-title.ts'
@@ -23,6 +24,7 @@ export interface ClientConfig { readonly profileId: string }
 const VERSION = '0.3.4'
 type _ClientRemoteTypeRegistration = ClientRemote
 const FEATURES: readonly AnnotationCoreFeature[] = Object.freeze([
+  'native-selection-actions-v1',
   'session-main-graph-v2',
   'graph-reference-actions-v1',
   'cross-session-upstream-v1',
@@ -182,6 +184,8 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
   }
   readonly version = VERSION
   readonly features = FEATURES
+  readonly selectionActions = new SelectionActions()
+  registerSelectionAction(action: SelectionAction): () => void { return this.selectionActions.register(action) }
   readonly sources = new ClientSourceRegistry()
   readonly dialog = new AnnotationDialogController()
   private readonly sent = new Map<string, Map<string, ReferenceSet>>()
@@ -297,7 +301,12 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     let binding: ComposerBinding
     binding = createComposerBinding({
       ...input, remote,
-      onOpen: (set, referenceId) => this.dialog.open(set, referenceId),
+      onJump: async item => {
+        const source = this.sources.forItem(item)
+        if (!source) throw new Error('引用来源暂不可用')
+        await source.openSource(item)
+      },
+      onOpen: (set, referenceId, anchor) => this.dialog.open(set, referenceId, anchor),
       onRemove: async (referenceId) => {
         const state = unwrapRemote(await remote.readPending())
         unwrapRemote(await remote.removeReference({ expectedRevision: state.revision, referenceId }))

@@ -40,7 +40,8 @@ function NativeAnnotationRail(props: NativeRailProps) {
   useEffect(()=>props.core.registerNativeComposer(String(props.sessionId)),[props.core,props.sessionId])
   useEffect(() => {
     if (snapshot.pendingCount === 0 || snapshot.transport !== 'native-command-claim' || props.input.phase !== 'plain') return
-    const claim: CommandClaim = {
+    const claim: CommandClaim & { readonly allowEmpty: true } = {
+      allowEmpty: true,
       token: '',
       attachments: true,
       submit: (text: string, _actx: unknown, attachments: readonly SubmitAttachment[]) => nativeClaims.submit(props.nativeInput, String(props.sessionId), text, attachments),
@@ -48,12 +49,7 @@ function NativeAnnotationRail(props: NativeRailProps) {
     props.nativeInput.beginCommand(claim, { start: 0, end: 0, draftRev: props.input.draftRev })
   }, [handle, props.input.draftRev, props.input.phase, props.nativeInput, snapshot.pendingCount, snapshot.transport])
 
-  return <>
-    {handle.renderReferenceRail()}
-    {snapshot.pendingCount > 0 && props.input.attachmentIds.length > 0 && props.input.draft.trim().length === 0
-      ? <div className="dshAnnotationBlocked" role="status">先输入正文</div>
-      : null}
-  </>
+  return <>{handle.renderReferenceRail()}</>
 }
 
 interface AnnotationNodeProps {

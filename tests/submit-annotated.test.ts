@@ -174,6 +174,14 @@ function annotatedRequest(store: AnnotationStore, sessionId: string, overrides: 
 }
 
 describe('Host annotated submission transaction', () => {
+  it('durably sends references without inventing user text and clears pending references', async () => {
+    const f = fixture()
+    await addReference(f.store, f.session.id)
+    const result = await f.coordinator.submitAnnotated(f.agent, annotatedRequest(f.store, f.session.id, { text: '' }))
+    expect(result.kind).toBe('success')
+    expect(f.sends.at(-1)?.message.content).toContainEqual({ type: 'text', text: '' })
+    expect(f.store.readPending(f.session.id).pending).toBeUndefined()
+  })
   it.each(['model', 'executor-preview'])('retains the draft when selection changes during asynchronous %s',async stage=>{
     const f=fixture(),entered=deferred(),release=deferred()
     await addReference(f.store,f.session.id)

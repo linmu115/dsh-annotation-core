@@ -1,6 +1,6 @@
 {
   "name": "dsh-annotation-core",
-  "version": "0.3.12-rc2.17",
+  "version": "0.3.12-rc2.19",
   "private": false,
   "description": "Shared annotation state, submission, prompt, and UI core for DeepSeek Harness plugins.",
   "type": "module",
@@ -50,10 +50,12 @@
     "cordis.patch.yml",
     "docs/changes",
     "docs/release/verification.md",
+    "docs/native-selection-actions.md",
     "CHANGELOG.md",
     "README.md",
     "README_EN.md",
-    "LICENSE"
+    "LICENSE",
+    "scripts/patch-native-reference-input.mjs"
   ],
   "engines": {
     "node": ">=20"

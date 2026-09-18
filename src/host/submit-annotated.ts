@@ -142,10 +142,11 @@ export class AnnotationSubmissionCoordinator {
     if (pending.pending?.setId !== input.setId || pending.pending.revision !== input.referenceRevision) {
       throw new AggregateRevisionConflictError(input.referenceRevision, pending.pending?.revision ?? -1)
     }
+    if (pending.pending.items.length === 0) throw new RangeError('Submission requires text or references')
     let preparedSubmission
     try {
       preparedSubmission = await prepareSubmission({ agent, requestId: input.clientSubmissionId,
-        fileUploads: this.ctx.get('fileUploads'), attachments: this.ctx.attachments, text: input.text,
+        fileUploads: this.ctx.get('fileUploads'), attachments: this.ctx.attachments, text: input.text, allowEmptyText: true,
         ...(input.attachments === undefined ? {} : { ordered: input.attachments }),
         ...(input.images === undefined ? {} : { images: input.images }) })
     } catch (error) {
@@ -292,7 +293,7 @@ export class AnnotationSubmissionCoordinator {
   }
 
   private validateRequest(input: SubmitAnnotatedInput | SubmitPlainInput): void {
-    if (input.text.trim().length === 0) throw new RangeError('Submission requires nonempty text')
+    if (!('setId' in input) && input.text.trim().length === 0) throw new RangeError('Submission requires nonempty text')
     const actual = submissionRequestDigest({
       text: input.text,
       ...(input.attachments === undefined ? {} : { attachments: input.attachments }),

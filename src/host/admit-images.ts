@@ -21,10 +21,11 @@ export async function admitSubmissionImages(
 
 export async function createDirectUserMessage(input: {
   readonly attachments: AttachmentStore
+  readonly allowEmptyText?: boolean
   readonly text: string
   readonly images?: readonly SubmitImageAttachment[]
 }): Promise<UserMessage> {
-  if (input.text.trim().length === 0) throw new RangeError('A submitted user message requires nonempty text')
+  if (!input.allowEmptyText && input.text.trim().length === 0) throw new RangeError('A submitted user message requires nonempty text')
   const refs = await admitSubmissionImages(input.attachments, input.images)
   return createUserMessage({
     source: { kind: 'user' },
@@ -41,13 +42,14 @@ export async function prepareSubmission(input: {
   readonly fileUploads?: Pick<FileUploads, 'resolve' | 'bindPrompt'> | undefined
   readonly agent: Agent
   readonly requestId: string
+  readonly allowEmptyText?: boolean
   readonly text: string
   readonly images?: readonly SubmitImageAttachment[]
   readonly ordered?: readonly SubmissionAttachment[]
 }): Promise<{ message: UserMessage; binding?: PromptFileBinding }> {
   if (input.ordered === undefined) return { message: await createDirectUserMessage(input) }
   if (input.images !== undefined) throw new TypeError('Specify images or attachments, not both')
-  if (input.text.trim().length === 0) throw new RangeError('A submitted user message requires nonempty text')
+  if (!input.allowEmptyText && input.text.trim().length === 0) throw new RangeError('A submitted user message requires nonempty text')
   const receipts: FileUploadReceiptId[] = []
   const parts = input.ordered.map(part => {
     if (part.type === 'image') return part

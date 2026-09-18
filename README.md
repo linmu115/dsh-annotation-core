@@ -1,5 +1,9 @@
 # dsh-annotation-core
 
+## 原生主会话划选
+
+自 0.3.12-rc2.19 起，Core 独立提供主会话划选与会话内引用。扩展动作合同见 [原生划选动作](docs/native-selection-actions.md)。
+
 为 DSH 插件提供统一注释气泡、跨会话引用、可靠发送和历史注释详情。当前源码版本 **0.3.12-rc2.12**，针对官方 **DSH 0.1.5-rc.2 / web profile**。这里的版本说明不代表已发布到 npm；使用本分支功能时请构建并安装匹配的本地包。
 
 [English](README_EN.md) · 中文
