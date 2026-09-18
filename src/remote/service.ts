@@ -1,3 +1,4 @@
+import { withSubmissionProgress } from '../host/submission-progress.ts'
 import { restoreSessionReferences } from '../host/session-reference-recovery.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { captureUpstream,upstreamHost,describeGraphUpstream } from '../host/upstream.ts'
@@ -214,12 +215,12 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
 
   async submitAnnotated(agent: Agent, request: SubmitAnnotatedRequest, signal: AbortSignal) {
     if (this.submissions === undefined) throw new Error('Annotation submission runtime is unavailable')
-    return this.submissions.submitAnnotated(agent, request, signal)
+    return withSubmissionProgress(this.ctx, agent, request, signal, () => this.submissions!.submitAnnotated(agent, request, signal))
   }
 
   async submitPlainClaim(agent: Agent, request: SubmitPlainClaimRequest, signal: AbortSignal) {
     if (this.submissions === undefined) throw new Error('Annotation submission runtime is unavailable')
-    return this.submissions.submitPlain(agent, request, signal)
+    return withSubmissionProgress(this.ctx, agent, request, signal, () => this.submissions!.submitPlain(agent, request, signal))
   }
 
   async retryBacklink(agent: Agent, request: RetryBacklinkRequest) {
