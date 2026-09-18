@@ -38,7 +38,7 @@ function bounded(value: string | undefined, max: number): string | undefined {
   return value !== undefined && value.length > 0 && value.length <= max ? value : undefined
 }
 
-function entry(item: ReferenceItem, setId: string, state: AnnotationDirectoryEntry['state']): AnnotationDirectoryEntry {
+function entry(item: ReferenceItem, setId: string, state: AnnotationDirectoryEntry['state'], targetMessageId?: string): AnnotationDirectoryEntry {
   const source: { nativeSessionId?: string; title?: string; vaultId?: string; notePath?: string; anchorId?: string; upstreamReferenceId?: string } = {}
   if (item.sourceType === 'dsh-message') {
     const nativeSessionId = bounded(item.locator.sessionId, 256), anchorId = bounded(item.locator.anchorId, 256)
@@ -55,6 +55,7 @@ function entry(item: ReferenceItem, setId: string, state: AnnotationDirectoryEnt
     if (anchorId) source.anchorId = anchorId
   }
   return {
+    ...(targetMessageId ? { targetMessageId } : {}),
     referenceId: item.referenceId, setId, sourceType: item.sourceType, state, source,
     selectedText: item.selectedText.slice(0, 4000), userComment: item.userComment.slice(0, 2000),
     ...(item.selectedText.length > 4000 || item.userComment.length > 2000 ? { truncated: true } : {}),
@@ -70,7 +71,7 @@ export function referenceDirectoryRevision(aggregate: SessionAggregate): number 
 function records(aggregate: SessionAggregate) {
   const records = new Map<string, { referenceId: string; materialize: () => AnnotationDirectoryEntry }>()
   for (const set of [...aggregate.sentSets, ...(aggregate.pending ? [aggregate.pending] : [])]) {
-    for (const item of set.items) records.set(item.referenceId, { referenceId: item.referenceId, materialize: () => entry(item, set.setId, set.state) })
+    for (const item of set.items) records.set(item.referenceId, { referenceId: item.referenceId, materialize: () => entry(item, set.setId, set.state, set.userMessageId) })
   }
   // Positive tombstones survive when their original item and cleanup job are gone.
   for (const deleted of Object.values(aggregate.deletedReferences)) records.set(deleted.referenceId, {

@@ -42,6 +42,7 @@ export interface InputAcceptanceProvider {
 
 /** Bounded read model for optional host mirrors; this is not a submission API. */
 export interface AnnotationDirectoryEntry {
+  readonly targetMessageId?: string
   readonly referenceId: string
   readonly setId: string
   readonly sourceType: 'dsh-message' | 'obsidian-note'

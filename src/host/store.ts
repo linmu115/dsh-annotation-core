@@ -1687,6 +1687,24 @@ export class AnnotationStore {
     return undefined
   }
 
+  /** Rehydrate a verified persisted submission; never fabricate an admission or resend a backlink. */
+  async restoreSentSnapshot(sessionId: string, snapshot: ReferenceSet, deleted: readonly DeletedReferenceRecord[] = []): Promise<void> {
+    const parsed = ReferenceSetSchema.parse({ ...snapshot, sessionId, profileId: this.options.profileId }) as ReferenceSet
+    if (parsed.state !== 'sent' || !parsed.userMessageId) throw new Error('A persisted submitted snapshot is required')
+    await this.mutate(sessionId, aggregate => {
+      const existing = aggregate.sentSets.find(set => set.setId === parsed.setId)
+      if (existing) {
+        if (existing.userMessageId !== parsed.userMessageId) throw new Error('Restored set has a different message owner')
+        return { changed: false, aggregate, value: undefined }
+      }
+      const tombstones = { ...aggregate.deletedReferences }
+      for (const record of deleted) if (record.setId === parsed.setId) tombstones[record.referenceId] ??= record
+      const items = parsed.items.filter(item => tombstones[item.referenceId]?.setId !== parsed.setId)
+      return { changed: true, value: undefined, aggregate: { ...aggregate, revision: aggregate.revision + 1,
+        deletedReferences: tombstones, sentSets: [...aggregate.sentSets, { ...parsed, items }] } }
+    })
+  }
+
   readSentSet(sessionId: string, setId: string): ReferenceSet | undefined {
     const set = this.readStored(sessionId).sentSets.find((candidate) => candidate.setId === setId)
     return set === undefined ? undefined : clone(set)

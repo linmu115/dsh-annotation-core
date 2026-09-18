@@ -1,3 +1,4 @@
+import { restoreSessionReferences } from '../host/session-reference-recovery.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { captureUpstream,upstreamHost,describeGraphUpstream } from '../host/upstream.ts'
 import type { DshMessageCapture } from '../protocol/index.ts'
@@ -95,7 +96,8 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
     return { revision: state.revision, pending: state.pending ?? null }
   }
 
-  resolveReferenceLink(agent: Agent, referenceId: string) {
+  async resolveReferenceLink(agent: Agent, referenceId: string) {
+    await restoreSessionReferences(this.store, agent)
     return this.store.resolveReferenceLink(agent.id, referenceId)
   }
 
@@ -180,11 +182,13 @@ export class AnnotationCoreRemoteService extends TypertRemoteService {
     return this.store.reuseReference(agent.id, request)
   }
 
-  readSentSet(agent: Agent, setId: string) {
+  async readSentSet(agent: Agent, setId: string) {
+    await restoreSessionReferences(this.store, agent)
     return this.store.readSentSet(agent.id, setId) ?? null
   }
 
   async listSentForSession(agent: Agent) {
+    await restoreSessionReferences(this.store, agent)
     await reconcileGraphRevocations(this.ctx, this.store, agent.id)
     return this.store.listSentForSession(agent.id)
   }

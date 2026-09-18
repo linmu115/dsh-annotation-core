@@ -44,7 +44,7 @@ async function loadGatewayClient(): Promise<Record<string, unknown>> {
 function mountAgentBoundary(ctx: Context, store: AnnotationStore) {
   new TypertRegistry(ctx)
   new AnnotationCoreRemoteService(ctx, store)
-  const agent = { id: 'session-1', ctx } as never
+  const agent = { id: 'session-1', ctx, session: { snapshotEvents: () => [] } } as never
   ctx.typert.lookups.register('agent', {
     parameter: 'agent',
     wire: 'agentId',

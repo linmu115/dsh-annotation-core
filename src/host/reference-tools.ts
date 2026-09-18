@@ -19,7 +19,7 @@ export function availableReferenceSets(store: AnnotationStore, agent: Agent): re
   for (const set of store.listRestoredGraphSets(sessionId)) {
     if (![...sets.values()].some(existing => existing.items.some(item => item.referenceId === set.items[0]?.referenceId))) sets.set(set.setId, set)
   }
-  for (const event of agent.session.snapshotEvents().slice(0, agent.session.inheritedEventCount)) {
+  for (const event of agent.session.snapshotEvents()) {
     if (event.type !== 'user/message' || event.data.source.kind !== 'dsh-annotation') continue
     const source = event.data.source
     if (sets.has(source.setId)) continue
@@ -28,8 +28,9 @@ export function availableReferenceSets(store: AnnotationStore, agent: Agent): re
     if (canonicalSha256({ schemaVersion: 1, setId: source.setId, annotations: parsed.annotations.items, documents: parsed.documents.documents }) !== source.digest)
       throw new Error('Inherited reference snapshot digest does not match its source')
     const items = parsed.annotations.items.map(item => {
-      const document = parsed.documents.documents.find(value => value.key === item.documentKey)
-      return { ...item, backlinkState: 'not-required', ...(item.sourceType !== 'obsidian-note' ? {} : {
+      const { documentKey, ...referenceItem } = item
+      const document = parsed.documents.documents.find(value => value.key === documentKey)
+      return { ...referenceItem, backlinkState: item.sourceType === 'obsidian-note' ? 'pending' : 'not-required', ...(item.sourceType !== 'obsidian-note' ? {} : {
         snapshot: { markdown: document?.markdown, documentHash: document?.documentHash, capturedAt: event.time, freshness: 'captured' },
       }) }
     })
