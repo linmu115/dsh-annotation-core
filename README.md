@@ -10,8 +10,28 @@ Core 提供原生会话选文动作注册、统一引用气泡、注解、发送
 
 开发接口：`dsh-annotation-core/client-api`、`host-api`、`protocol`、`typert`、`remote`。选文动作以 `registerSelectionAction` 注册；会话扩展数据使用带命名空间和修订的公共端口，不直接改其它插件存储文件。完整类型随包提供。
 
-## 安装、配置与使用
+## 部署方法
 
-[完整命令行与手动安装教程](docs/INSTALL.md) · [下载本版本附件](https://github.com/linmu115/dsh-annotation-core/releases/tag/v0.3.12-rc2.23)
+**环境要求**：Node.js 24，可正常启动的 DSH `0.1.5-rc.2` / `web` profile。Core 不依赖 Maintenance、Launcher、Codex 或 Obsidian。
 
-本批为预发布，安装顺序、数据保留、更新卸载和故障定位均在教程中。无需用户的 LLM 才能完成基础配置。当前能力和未完成验收见 [发布验证记录](docs/RELEASE-20260920.md)。
+从 [Release v0.3.12-rc2.23](https://github.com/linmu115/dsh-annotation-core/releases/tag/v0.3.12-rc2.23) 下载 `dsh-annotation-core-0.3.12-rc2.23.tgz`，然后：
+
+```powershell
+$env:DSH_HOME = '<你的 DSH_HOME>'
+dsh plugin --profile web add ./dsh-annotation-core-0.3.12-rc2.23.tgz
+```
+
+安装命令会把包写进 profile 并在 `dsh.profile.bundles` 注册，**不要**再手工向 profile 插入同名插件节点。随后正常重启 DSH 使新版本加载。
+
+核对安装结果：
+
+```powershell
+(Get-Content "$env:DSH_HOME\profiles\web\node_modules\dsh-annotation-core\package.json" -Raw | ConvertFrom-Json).version
+```
+
+**用法**：在原生会话中选中文字，用注册的引用/注释入口；待发送气泡显示在输入区，检查后自行发送。
+
+**更新**：正常停止 DSH，备份 DSH_HOME，用同样的 `plugin add` 装新 tgz，重启并刷新页面。
+**卸载**：`dsh plugin --profile web remove dsh-annotation-core`。卸载代码不等于删除业务数据，保留 DSH_HOME 才能保留恢复条件。
+
+完整说明（安装顺序、Vault 绑定、更新卸载、故障定位）：[INSTALL.md](docs/INSTALL.md)。本批为预发布，当前能力和未完成验收见 [发布验证记录](docs/RELEASE-20260920.md)。
