@@ -1,4 +1,5 @@
 import { ReferenceHighlights, ReferenceHighlightStore, referenceRange } from './reference-highlights.tsx'
+import { ReferenceBadges } from './reference-badges.tsx'
 import { SelectionActions, type SelectionAction } from './selection-actions.ts'
 import { Service } from '@deepseek-ai/cordis'
 import { chooseCrossSession } from './cross-session-picker.tsx'
@@ -382,7 +383,10 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     }
     const sessions = this.ctx.get('sessions') as unknown as { list: { getSnapshot(): { current?: string }; subscribe(listener: () => void): () => void } }
     return <><ReferenceHighlights store={this.highlights} currentSession={() => sessions.list.getSnapshot().current}
-      subscribeSession={listener => sessions.list.subscribe(listener)} resolveAnchor={item => this.resolveDshAnchor(item)} /><ReferenceDialog
+      subscribeSession={listener => sessions.list.subscribe(listener)} resolveAnchor={item => this.resolveDshAnchor(item)} /><ReferenceBadges
+      store={this.highlights} currentSession={() => sessions.list.getSnapshot().current}
+      subscribeSession={listener => sessions.list.subscribe(listener)} resolveAnchor={item => this.resolveDshAnchor(item)}
+      openReference={(set, referenceId) => this.dialog.open(set, referenceId)} /><ReferenceDialog
       controller={this.dialog} sources={this.sources}
       updateComment={async (referenceId, comment) => {
         const { set, sessionId, remote } = target()

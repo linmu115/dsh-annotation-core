@@ -45,6 +45,17 @@
 @media(prefers-reduced-motion:reduce) { .dshAnnotationDialog button.dshAnnotationIconButton,.dshAnnotationDialog button.dshAnnotationDialogClose,.dshAnnotationPopover button.dshAnnotationIconButton { transition:none; } }
 ::highlight(dsh-core-references) { background:rgba(128,128,128,.22); }
 
+/* Inline reference badges. Same family as .dshAnnotationCount (round sibling of
+   the rail chip), but anchored to the referenced passage by fixed coordinates.
+   z-index sits between the pending-list popover (2147483050) and the dialog layer
+   (2147483100), and above the sticker dot (71). The host stays click-through;
+   only the buttons are hit targets. */
+[data-dsh-annotation-badges] { position:static; pointer-events:none; }
+.dshAnnotationReferenceBadge { position:fixed; z-index:2147483060; box-sizing:border-box; transform:translateY(-50%); display:inline-flex; align-items:center; justify-content:center; width:19px; height:19px; min-width:19px; padding:0; border:1px solid var(--dsw-alias-border-l2,#ddd); border-radius:50%; background:var(--dsw-alias-bg-layer-0,var(--color-background,#fff)); color:var(--dsw-alias-label-secondary,#64646c); box-shadow:0 1px 4px #0000001f; font:600 10px/1 var(--dsw-font-family,system-ui,sans-serif); font-variant-numeric:tabular-nums; cursor:pointer; pointer-events:auto; user-select:none; -webkit-user-select:none; transition:background .15s,color .15s; }
+.dshAnnotationReferenceBadge:hover { background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,currentColor 9%,transparent)); color:var(--dsw-alias-label-primary,#202123); }
+.dshAnnotationReferenceBadge:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
+@media(prefers-reduced-motion:reduce) { .dshAnnotationReferenceBadge { transition:none; } }
+
 /* Match the installed DSH Modal/Menu theme tokens. Keep these rules scoped to
    the picker so appearance work does not change the annotation delivery rail. */
 /* Keep the modal above Sidechat's selection toolbar (2147483000). */

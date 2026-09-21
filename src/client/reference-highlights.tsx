@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import type { ReferenceItem, ReferenceSet } from '../domain/model.ts'
+import { LAYOUT_ATTRIBUTES, affectsMessageText, markReferenceTextDirty, normalizeReferenceText, referenceTextIndex } from './reference-text-index.ts'
 
 export class ReferenceHighlightStore {
   readonly sets = new Map<string, ReferenceSet>()
@@ -14,18 +15,9 @@ export class ReferenceHighlightStore {
 /** Rebuild ranges from durable locators, never wrap or rewrite message DOM. */
 export function referenceRange(root: HTMLElement, text: string, occurrence: number): Range | null {
   if (!text || occurrence < 0) return null
-  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-  const chars: { node: Text; offset: number; char: string }[] = []
-  for (let value = walker.nextNode(); value; value = walker.nextNode()) {
-    const node = value as Text
-    for (let offset = 0; offset < node.length; offset++) {
-      const char = node.data[offset]!
-      if (!/[\s\u200b-\u200d\u2060\ufeff]/u.test(char)) chars.push({ node, offset, char })
-    }
-  }
-  const quote = text.replace(/[\s\u200b-\u200d\u2060\ufeff]/gu, '')
+  const { chars, content } = referenceTextIndex(root)
+  const quote = normalizeReferenceText(text)
   if (!quote) return null
-  const content = chars.map(item => item.char).join('')
   let start = -1, cursor = 0
   for (let i = 0; i <= occurrence; i++) { start = content.indexOf(quote, cursor); if (start < 0) return null; cursor = start + quote.length }
   const first = chars[start], last = chars[cursor - 1]
@@ -34,6 +26,9 @@ export function referenceRange(root: HTMLElement, text: string, occurrence: numb
   range.setStart(first.node, first.offset); range.setEnd(last.node, last.offset + 1)
   return range
 }
+
+/** Same viewport margin the sticker board and the badge overlay use. */
+const VIEWPORT_MARGIN = 160
 
 type HighlightPlatform = { CSS?: { highlights?: Map<string, unknown> }; Highlight?: new (...ranges: Range[]) => unknown }
 export function ReferenceHighlights({ store, currentSession, subscribeSession, resolveAnchor }: {
@@ -49,6 +44,7 @@ export function ReferenceHighlights({ store, currentSession, subscribeSession, r
       frame = 0
       let hasSources = false
       const ranges: Range[] = [], seen = new Set<string>(), sessionId = currentSession()
+      const viewportBottom = window.innerHeight + VIEWPORT_MARGIN
       for (const set of store.sets.values()) for (const item of set.items) {
         if (item.sourceType !== 'dsh-message' || item.locator.sessionId !== sessionId) continue
         hasSources = true
@@ -57,16 +53,23 @@ export function ReferenceHighlights({ store, currentSession, subscribeSession, r
         seen.add(key)
         const anchor = resolveAnchor(item)
         const root = document.querySelector<HTMLElement>(`[data-chat-anchor-key="${CSS.escape(anchor)}"]`)
-        const range = root && referenceRange(root, item.selectedText, item.locator.occurrence)
+        if (root === null) continue
+        // Viewport culling: skip messages that are entirely outside the margin so
+        // a long conversation stops paying for off-screen Range walks every frame.
+        const box = root.getBoundingClientRect()
+        if (box.bottom < -VIEWPORT_MARGIN || box.top > viewportBottom) continue
+        const range = referenceRange(root, item.selectedText, item.locator.occurrence)
         if (range) ranges.push(range)
       }
       registry.set('dsh-core-references', new Highlight(...ranges))
-      if (hasSources && !observing) { observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['data-chat-anchor-key'] }); observing = true }
+      if (hasSources && !observing) { observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: [...LAYOUT_ATTRIBUTES] }); observing = true }
       if (!hasSources && observing) { observer.disconnect(); observing = false }
     }
     const schedule = () => { if (!frame) frame = requestAnimationFrame(paint) }
     const unsubscribe = store.subscribe(schedule), unsubscribeSession = subscribeSession(schedule)
-    const observer = new MutationObserver(schedule)
+    // Only message-DOM batches invalidate the shared text tables; our own badge
+    // and dialog hosts repaint constantly without touching message text.
+    const observer = new MutationObserver(records => { if (affectsMessageText(records)) { markReferenceTextDirty(); schedule() } })
     schedule()
     return () => { cancelAnimationFrame(frame); observer.disconnect(); unsubscribe(); unsubscribeSession(); registry.delete('dsh-core-references') }
   }, [store, currentSession, subscribeSession, resolveAnchor])
