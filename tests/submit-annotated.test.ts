@@ -294,7 +294,13 @@ describe('Host annotated submission transaction', () => {
     expect(resolveModelInfo).toHaveBeenCalledWith('native','large',undefined)
     expect(result.kind).toBe('success')
   })
-  it.each([52800, 80000])('retains receipts and draft when %i bytes of current input leave insufficient space for the full reference envelope', async inputBytes => {
+  // The reference allowance is the smaller of 20% of the window and whatever the
+  // current input leaves free, so input that genuinely fills the window must
+  // still block. These sizes are token-denominated: the previous pair (52800 and
+  // 80000 bytes) is only about 17600 and 26700 tokens now that bytes are no
+  // longer charged as tokens, so it no longer exhausts a 65536-token window and
+  // admitted the reference instead of blocking it.
+  it.each([170000, 200000])('retains receipts and draft when %i bytes of current input leave insufficient space for the full reference envelope', async inputBytes => {
     const f = fixture()
     const commit = vi.fn(), dispose = vi.fn()
     f.ctx.provide('fileUploads', { resolve: () => ({ attachmentId: 'file-sha', name: 'note.txt', bytes: 4 }),

@@ -1,6 +1,6 @@
 # Annotation Core
 
-**0.3.12-rc2.26 · DSH 0.1.5-rc.2**
+**0.3.12-rc2.27 · DSH 0.1.5-rc.2**
 
 Core 提供原生会话选文动作注册、统一引用气泡、注解、发送状态及上下文接入，并向扩展提供会话数据和引用端口。不依赖 DAG、Bridge、贴纸、Maintenance 或 Launcher。
 
@@ -12,15 +12,15 @@ Core 提供原生会话选文动作注册、统一引用气泡、注解、发送
 
 ## 部署方法
 
-**本版（0.3.12-rc2.26）修复引用额度口径**：此前把会话请求的 JSON 字节数当作 token 去减模型的 token 窗口，中文长会话会把可用引用额度算成 0 并拒绝引用。提交引用与上游读取两条路径均已改为 token 口径，详见[变更记录](docs/changes/2026-09-21-reference-budget-units.md)。
+**本版（0.3.12-rc2.27）补齐引用额度口径**：此前把会话请求的 JSON 字节数当作 token 去减模型的 token 窗口，中文长会话会把可用引用额度算成 0 并拒绝引用。提交引用、上游读取与领域层三条路径已在 rc2.24–rc2.26 改为 token 口径；rc2.27 再补齐非原生兜底路径上剩下的两处（图片句柄文本、无宿主计量时的请求体），详见[变更记录](docs/changes/2026-09-21-remaining-budget-units.md)与[前次记录](docs/changes/2026-09-21-reference-budget-units.md)。
 
 **环境要求**：Node.js 24，可正常启动的 DSH `0.1.5-rc.2` / `web` profile。Core 不依赖 Maintenance、Launcher、Codex 或 Obsidian。
 
-从 [Release v0.3.12-rc2.26](https://github.com/linmu115/dsh-annotation-core/releases/tag/v0.3.12-rc2.26) 下载 `dsh-annotation-core-0.3.12-rc2.26.tgz`，然后：
+从 [Release v0.3.12-rc2.27](https://github.com/linmu115/dsh-annotation-core/releases/tag/v0.3.12-rc2.27) 下载 `dsh-annotation-core-0.3.12-rc2.27.tgz`，然后：
 
 ```powershell
 $env:DSH_HOME = '<你的 DSH_HOME>'
-dsh plugin --profile web add ./dsh-annotation-core-0.3.12-rc2.26.tgz
+dsh plugin --profile web add ./dsh-annotation-core-0.3.12-rc2.27.tgz
 ```
 
 安装命令会把包写进 profile 并在 `dsh.profile.bundles` 注册，**不要**再手工向 profile 插入同名插件节点。随后正常重启 DSH 使新版本加载。

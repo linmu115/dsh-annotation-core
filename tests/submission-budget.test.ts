@@ -3,7 +3,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it, vi } from 'vitest'
 import { submissionReferenceBudget } from '../src/host/submission-budget.ts'
-import { estimateUtf8TokensFromBytes } from '../src/domain/budget.ts'
+import { estimateUtf8Tokens, estimateUtf8TokensFromBytes } from '../src/domain/budget.ts'
 
 function fixture() {
   const ctx = new Context()
@@ -72,6 +72,27 @@ describe('initial reference allowance', () => {
     expect(JSON.stringify(f.history)).toBe(before)
     expect(f.priceImages).not.toHaveBeenCalled()
   })
+  it('prices the provider-owned image handle text at the token density, not by its bytes', async () => {
+    const f = fixture()
+    // The fixture quotes 12000 visual tokens plus the UTF-8 text 'image handle'
+    // (12 bytes) per occurrence. visualTokens is already a token count; the
+    // handle text must be converted, never added to a token window as bytes.
+    expect(Buffer.byteLength('image handle')).toBe(12)
+    const image = { type: 'image', attachment: { attachmentId: 'image', bytes: 3, mediaType: 'image/png' } }
+    const noImage = (await f.budget()).maxTokens!
+    const withImage = (await f.budget(f.user('question', [image]))).maxTokens!
+    const text = 'image handle'
+    expect(f.priceImages).toHaveBeenCalledOnce()
+    expect(f.priceImages.mock.calls[0]?.[0]).toHaveLength(1)
+    expect(estimateUtf8Tokens(text)).toBe(4)
+    expect(estimateUtf8Tokens(text)).not.toBe(Buffer.byteLength(text))
+    // The delta mixes three token-space terms: the 12000 visual tokens, the
+    // converted 12 handle bytes, and the 17 bytes the extra projected image block
+    // adds to the request JSON (5 tokens). Charging the handle bytes as 12 tokens
+    // would over-subtract by 8 here (and by 3x for CJK handle text).
+    expect(noImage - withImage).toBe(12000 + estimateUtf8Tokens(text) + 5)
+    expect(noImage - withImage).toBeLessThan(12000 + Buffer.byteLength(text) + 8)
+  })
   it('uses native inner usage and provider payload accounting instead of outer transcript size', async()=>{
     const f=fixture()
     f.history.push(f.user('outer transcript already consumed '.repeat(10000)))
@@ -121,9 +142,14 @@ describe('initial reference allowance', () => {
     if (field === 'input') message = f.user(large)
     if (field === 'output') f.options.maxTokens += 30000
     const allowance = await f.budget(message)
-    expect(allowance.maxTokens).toBeLessThanOrEqual(baseline - 29000)
+    // 30000 bytes of extra material is about 10000 tokens at the shared density,
+    // so the guard is token-denominated; byte counting would have taken 30000.
+    expect(allowance.maxTokens).toBeLessThanOrEqual(baseline - 9000)
     expect(allowance.includeEnvelope).toBe(true)
-    expect(allowance.countTokens?.('字')).toBe(3)
+    // '字' is three UTF-8 bytes but one token at the shared density. This used to
+    // assert 3, which pinned the byte-as-token pricing this fix removes.
+    expect(allowance.countTokens?.('字')).toBe(estimateUtf8Tokens('字'))
+    expect(allowance.countTokens?.('字')).not.toBe(Buffer.byteLength('字'))
     expect(f.assemble).toHaveBeenLastCalledWith({ agent: f.agent, scope: f.agent })
   })
   it('prices each image occurrence including nested tool results, and uses exact file handle text', async () => {
@@ -138,7 +164,8 @@ describe('initial reference allowance', () => {
     const file = { attachmentId: 'file', name: 'sample.pdf', bytes: 1000000 }
     const withFile = await f.budget(f.user('question', [{ type: 'file', attachment: file }]))
     expect(f.fileRequestText).toHaveBeenCalledWith(file)
-    expect(withFile.maxTokens).toBeLessThan(baseline - 9000)
+    // The exact handle text is 10000 bytes, about 3334 tokens at the shared density.
+    expect(withFile.maxTokens).toBeLessThan(baseline - 3000)
     expect(withFile.maxTokens).toBeGreaterThan(0)
   })
   it('reads the host token meter instead of raw bytes before assigning reference space', async () => {
@@ -153,6 +180,50 @@ describe('initial reference allowance', () => {
     const pendingMessageTokens = estimateUtf8TokensFromBytes(Buffer.byteLength(JSON.stringify(f.user())))
     expect(metered).toBe(65536 - 50000 - pendingMessageTokens - 8192 - 4096)
     expect(metered).toBeGreaterThan(0)
+  })
+  it('subtracts the JSON surface in tokens when the host token meter is absent', async () => {
+    const f = fixture()
+    // Without the meter there is no measured surface, so the request JSON is the
+    // only usable measure of what the conversation already occupies. Its bytes
+    // must be converted before they are subtracted from the token window.
+    let serializedBytes: number | undefined
+    const actualByteLength = Buffer.byteLength as (value: string | Uint8Array) => number
+    const byteLength = vi.spyOn(Buffer, 'byteLength').mockImplementation(((value: string | Uint8Array) => {
+      const actual = actualByteLength(value)
+      if (typeof value === 'string' && value.startsWith('{') && value.includes('"messages"') && value.length > 100)
+        serializedBytes = actual
+      return actual
+    }) as never)
+    let absent: number
+    try { absent = (await f.budget()).maxTokens! } finally { byteLength.mockRestore() }
+    expect(serializedBytes).toBeDefined()
+    f.ctx.provide('tokenMeter' as never, { measure: () => ({ surfaceTokens: 1000 }) } as never)
+    const metered = (await f.budget()).maxTokens!
+    const pendingMessageTokens = estimateUtf8TokensFromBytes(Buffer.byteLength(JSON.stringify(f.user())))
+    expect(metered).toBe(65536 - 1000 - pendingMessageTokens - 8192 - 4096)
+    // The pending message JSON is longer than its canonical 'question' text, so
+    // the converted request cost is a strict, non-trivial reduction: charging
+    // the raw byte count as tokens would over-subtract at least threefold.
+    expect(absent).toBe(65536 - estimateUtf8TokensFromBytes(serializedBytes!) - 8192 - 4096)
+    expect(absent).toBeGreaterThan(metered)
+    expect(estimateUtf8TokensFromBytes(serializedBytes!)).toBeLessThan(serializedBytes! - 1)
+  })
+  it('prices a non-native reference at the domain estimator density instead of raw UTF-8 bytes', async () => {
+    const f = fixture()
+    // The deployed web profile installs no codexRuntime service, so this is the
+    // default DSH path: the estimator handed to the domain layer must agree with
+    // the shared UTF-8 density rather than charge one token per byte.
+    expect(f.ctx.get('codexRuntime' as never)).toBeUndefined()
+    const text = '引用上下文'.repeat(10)
+    const bytes = Buffer.byteLength(text)
+    const budget = await f.budget()
+    const tokens = budget.countTokens?.(text)
+    expect(bytes).toBe(150)
+    expect(tokens).toBe(estimateUtf8Tokens(text))
+    expect(tokens).toBe(Math.ceil(bytes / 3))
+    expect(tokens).not.toBe(bytes)
+    // The domain layer rejects anything but a non-negative safe integer.
+    expect(Number.isSafeInteger(tokens) && (tokens ?? -1) >= 0).toBe(true)
   })
   it('falls back to byte accounting when the host token meter is absent or fails', async () => {
     const absent = fixture()
@@ -170,7 +241,12 @@ describe('initial reference allowance', () => {
   it('does not invent capacity, media costs, or unused space in an already full request', async () => {
     const f = fixture()
     await expect(submissionReferenceBudget(f.ctx, f.agent, f.user(), f.selection, undefined)).rejects.toThrow('容量')
-    expect((await f.budget(f.user('x'.repeat(65536)))).maxTokens).toBe(0)
+    // 200000 bytes is about 67000 tokens, which alone exceeds the 65536-token
+    // window, so the conversation has consumed all of it. A message that only
+    // looked full under byte counting (65536 bytes is about 22000 tokens) must
+    // still be admitted now.
+    expect((await f.budget(f.user('x'.repeat(200000)))).maxTokens).toBe(0)
+    expect((await f.budget(f.user('x'.repeat(65536)))).maxTokens).toBeGreaterThan(0)
     f.priceImages.mockReturnValueOnce([])
     await expect(f.budget(f.user('question', [{ type: 'image', attachment: { attachmentId: 'tiny-id' } }]))).rejects.toThrow('图片额度')
     await expect(f.budget(f.user('question', [{ type: 'audio', url: 'short' }]))).rejects.toThrow('无法计价')

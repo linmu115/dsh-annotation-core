@@ -108,6 +108,12 @@ export async function submissionReferenceBudget(ctx: Context, agent: Agent, mess
     ({ role: value.role, content: value.content.map(projectBlock) })) as Message[]
   const system = { system: renderPrompt(assembly), context: renderContextSnapshot(assembly), tools: assembly.tools }
   const request = { messages, ...system }
+  const header = agent.session.requestHeader()
+  const sameRoute = header?.config.provider === selection.provider && header.config.model === selection.model
+  const maxTokens = agent.options.maxTokens ?? (sameRoute ? header?.config.maxTokens : undefined) ?? model?.defaultMaxTokens
+  if (maxTokens !== undefined && (!Number.isSafeInteger(maxTokens) || maxTokens < 0))
+    throw new Error('当前模型的输出预留不可确认，已保留引用草稿')
+  const reserve = Math.max(4096, maxTokens ?? (window ? Math.ceil(window / 4) : 8192))
   let imageTokens = 0
   if (images.length) {
     const pricing = llm.imageRequestPricing?.(selection.provider, selection.model)
@@ -117,20 +123,24 @@ export async function submissionReferenceBudget(ctx: Context, agent: Agent, mess
     if (prices.length !== images.length || prices.some(price => !Number.isSafeInteger(price.visualTokens)
       || price.visualTokens < 0 || typeof price.text !== 'string'))
       throw new Error('当前模型未提供可靠的图片额度，已保留正文、附件和引用草稿')
-    imageTokens = prices.reduce((total, price) => total + price.visualTokens + Buffer.byteLength(price.text), 0)
+    const boxedBytes = prices.reduce((total, price) => total + Buffer.byteLength(price.text), 0)
+    // visualTokens is already a token count; price.text is the provider-owned
+    // textual representation, whose price is quoted in UTF-8 bytes. The
+    // non-native route has no provider count to convert it with, so it reuses
+    // the shared density. The native route compares bytes to bytes against
+    // native.maxInputBytes, so it keeps the raw size.
+    imageTokens = prices.reduce((total, price) => total + price.visualTokens, 0)
+      + (native === undefined ? estimateUtf8TokensFromBytes(boxedBytes) : boxedBytes)
   }
-  const header = agent.session.requestHeader()
-  const sameRoute = header?.config.provider === selection.provider && header.config.model === selection.model
-  const maxTokens = agent.options.maxTokens ?? (sameRoute ? header?.config.maxTokens : undefined) ?? model?.defaultMaxTokens
-  if (maxTokens !== undefined && (!Number.isSafeInteger(maxTokens) || maxTokens < 0))
-    throw new Error('当前模型的输出预留不可确认，已保留引用草稿')
-  const reserve = Math.max(4096, maxTokens ?? (window ? Math.ceil(window / 4) : 8192))
   // One UTF-8 byte per text token is a conservative upper bound, not a tokenizer.
   const nativeBytes = native?.countInputBytes(messages)
   const nativeTools = (native?.toolSchemaBytes ?? 0) + (native?.systemPromptBytes ?? 0)
   if (!Number.isSafeInteger(nativeTools) || nativeTools < 0) throw new Error('Codex 工具额度无效，已保留草稿')
   const requestBytes = nativeBytes === undefined ? Buffer.byteLength(JSON.stringify(request))
     : nativeBytes + Buffer.byteLength(JSON.stringify(system)) + nativeTools
+  // The same surface in the units of whoever measures it: bytes when the Codex
+  // route reports them, tokens once converted for the token-denominated window.
+  const requestSize = native === undefined ? estimateUtf8TokensFromBytes(requestBytes) : requestBytes
   // The context window is denominated in tokens, so the conversation's share of
   // it must be counted in tokens too. Raw JSON bytes are not tokens: for CJK a
   // UTF-8 byte is about a third of a token, so byte counting overstates the
@@ -147,7 +157,7 @@ export async function submissionReferenceBudget(ctx: Context, agent: Agent, mess
   const surfaceTokens = typeof measuredSurfaceTokens === 'number'
     && Number.isSafeInteger(measuredSurfaceTokens) && measuredSurfaceTokens >= 0 ? measuredSurfaceTokens : undefined
   const occupiedTokens = native !== undefined ? requestBytes + imageTokens
-    : selectedRequestTokens ?? (surfaceTokens === undefined ? requestBytes + imageTokens
+    : selectedRequestTokens ?? (surfaceTokens === undefined ? requestSize + imageTokens
       : surfaceTokens + estimateUtf8TokensFromBytes(Buffer.byteLength(JSON.stringify(message))) + imageTokens)
   const remaining = Math.max(0, Math.min(
     window === undefined ? Infinity : window - (native?.inputTokens ?? 0) - (native?.outputTokens ?? 0) - occupiedTokens - reserve - 4096,
@@ -158,5 +168,11 @@ export async function submissionReferenceBudget(ctx: Context, agent: Agent, mess
   return { ...(window === undefined ? {} : { contextWindow: window }), maxTokens: remaining, includeEnvelope: true,
     basis: native?.basis ?? 'model-metadata',
     ...(native?.validateScope ? { validateScope: native.validateScope } : {}),
-    countTokens: text => Math.max(Buffer.byteLength(text), native ? native.countInputBytes(messages, text) - nativeBytes! : 0) }
+    // The allowance is token-denominated, so the estimator handed to the domain
+    // layer must be too. Without a native meter there is no provider count to
+    // lean on, so reuse the shared UTF-8 density (about one token per three
+    // bytes) instead of pricing each CJK character as its three UTF-8 bytes.
+    countTokens: text => native === undefined
+      ? estimateUtf8TokensFromBytes(Buffer.byteLength(text))
+      : Math.max(Buffer.byteLength(text), native.countInputBytes(messages, text) - nativeBytes!) }
 }
