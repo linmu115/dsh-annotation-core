@@ -91,3 +91,10 @@
 @keyframes dshCrossSessionSpin { to { transform:rotate(360deg); } }
 @media (max-width:480px) { .dshCrossSessionOverlay { padding:16px; } .dshCrossSessionDialog { max-height:calc(100dvh - 32px); } .dshCrossSessionEscape { display:none; } }
 @media (prefers-reduced-motion:reduce) { .dshCrossSessionRow { transition:none; } .dshCrossSessionSpinner { animation:none; } }
+
+/* The pending-reference hover list is a scanning surface, not a reading one:
+   one line per entry, clipped. The full text stays available through the entry's
+   own actions (edit / jump), so nothing is lost by truncating here. */
+.dshAnnotationListItem { overflow:hidden; }
+.dshAnnotationListItem blockquote { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dshAnnotationListItem .dshAnnotationListComment { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }

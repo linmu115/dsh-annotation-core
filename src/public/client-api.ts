@@ -86,7 +86,7 @@ export interface AnnotationCoreClient {
   addReference(
     sessionId: string,
     source: ReferenceSource,
-    options?: { operationId?: string; referenceId?: string; signal?: AbortSignal },
+    options?: { operationId?: string; referenceId?: string; signal?: AbortSignal; openComment?: boolean },
   ): Promise<{ setId: string; referenceId: string; created: boolean }>
   fenceReferenceOperation(
     sessionId: string,

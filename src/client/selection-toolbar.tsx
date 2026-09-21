@@ -75,7 +75,9 @@ function SelectionToolbarInner({ core, controller }: { core: AnnotationCoreClien
     <div className="dsh-core-selection-toolbar" role="menu" aria-label="选文操作">
       <button type="button" role="menuitem" disabled={busy} onMouseDown={event => event.preventDefault()} onClick={() => void run(async input => {
         const source = await core.createDshMessageSource(input)
-        await core.addReference(input.sourceSessionId, source)
+        // Open the comment editor immediately: a new reference has no comment yet,
+        // and making the author hunt for the rail chip first is pure friction.
+        await core.addReference(input.sourceSessionId, source, { openComment: true })
       })}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v11H9l-4 4Z" /></svg>添加到当前会话</button>
       {actions.filter(action => !action.available || action.available(capture)).map(action => <button key={action.id} type="button" role="menuitem" disabled={busy} onMouseDown={event => event.preventDefault()} onClick={() => void run(input => action.run(input))}>{action.iconPath && <svg viewBox="0 0 24 24" aria-hidden="true"><path d={action.iconPath} /></svg>}{typeof action.label === 'function' ? action.label() : action.label}</button>)}
     </div>{error && <div className="dsh-core-selection-error" role="alert">{error}</div>}

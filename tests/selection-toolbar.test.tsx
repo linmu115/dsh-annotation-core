@@ -18,7 +18,7 @@ it('owns within-session references without a sidebar, and removes contributed ac
     expect(host.querySelectorAll('button')).toHaveLength(1)
     await act(async () => host.querySelector('button')!.click())
     expect(core.createDshMessageSource).toHaveBeenCalledWith({ selectedText: capture.text, sourceSessionId: 'native-source', messageId: 'reply', anchorId: 'anchor', role: 'assistant', occurrence: 2 })
-    expect(core.addReference).toHaveBeenCalledWith('native-source', source)
+    expect(core.addReference).toHaveBeenCalledWith('native-source', source, { openComment: true })
     const run = vi.fn(async () => {})
     let unregister = () => {}
     await act(async () => { unregister = actions.register({ id: 'thoughtdag.reference', label: '跨会话引用', run }) })

@@ -252,7 +252,7 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     }
   }
 
-  async addReference(sessionId: string, source: ReferenceSource, options: { operationId?: string; referenceId?: string; signal?: AbortSignal; beforeCommit?: () => void } = {}) {
+  async addReference(sessionId: string, source: ReferenceSource, options: { operationId?: string; referenceId?: string; signal?: AbortSignal; beforeCommit?: () => void; openComment?: boolean } = {}) {
     const remote = this.remote(sessionId); const pending = unwrapRemote(await remote.readPending()); const operationId = options.operationId ?? id('operation')
     if (options.signal?.aborted) {
       unwrapRemote(await remote.fenceReferenceOperation({ expectedRevision: pending.revision, operationId }))
@@ -264,6 +264,14 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
       referenceId: options.referenceId ?? id('reference'), source, createdAt: Date.now(),
     }))
     notifyReferenceChange(sessionId)
+    // A freshly created reference has no comment yet. Open its editor straight
+    // away so the author does not have to find the rail chip and click it.
+    if (options.openComment === true && result.created) {
+      try {
+        const refreshed = unwrapRemote(await remote.readPending())
+        if (refreshed.pending !== null) this.dialog.open(refreshed.pending, result.referenceId)
+      } catch { /* the reference exists; a failed read must not fail the add */ }
+    }
     return { setId: result.setId, referenceId: result.referenceId, created: result.created }
   }
 
