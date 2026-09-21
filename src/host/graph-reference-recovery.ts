@@ -4,7 +4,7 @@ import { upstreamOf, type UpstreamHost } from './upstream.ts'
 
 /** Offline or unknown identities never imply deletion. Only a positive authority tombstone does. */
 export async function reconcileGraphRevocations(ctx: Context, store: AnnotationStore, sessionId: string, pendingOnly = false, referenceIds?: readonly string[]) {
-  const host = ctx.get('maintenanceSessionContext' as never) as UpstreamHost | undefined
+  const host = ctx.get('sessionReferenceContext' as never) as UpstreamHost | undefined
   if (host?.protocolVersion !== 1 || !host.status) return
   const state = store.read(sessionId)
   const items = [...(state.pending?.items ?? []), ...(pendingOnly ? [] : [

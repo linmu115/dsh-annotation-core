@@ -204,7 +204,7 @@ describe('Host annotated submission transaction', () => {
       items:[{eventId:'source-question',role:'user',text:'梯度检查点如何节省显存？',offset:0,complete:true},
         {eventId:'source-answer',role:'assistant',text:'通过重新计算中间激活值，以额外计算时间换取显存。这是完整回复的结尾。',offset:0,complete:true}],
       selectedTurn:{complete:true},nextCursor:'earlier',hasMore:true}))
-    f.ctx.provide('maintenanceSessionContext' as never,{protocolVersion:1,read,bind:async()=>({}),
+    f.ctx.provide('sessionReferenceContext' as never,{protocolVersion:1,read,bind:async()=>({}),
       inspect:async()=>({selectedText:'换取显存',sourceVersionId:'source-v1',cutoffEventId:'source-answer'})})
     await f.store.addReference(f.session.id,{expectedRevision:0,operationId:'capture',setId:'set',referenceId:'reference',createdAt:1,
       source:{sourceType:'dsh-message',selectedText:'换取显存',locator:{profileId:'web',sessionId:'source',anchorId:'source-answer',

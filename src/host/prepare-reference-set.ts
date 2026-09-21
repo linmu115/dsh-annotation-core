@@ -8,7 +8,7 @@ import type {
   SourceBudgetIssue,
 } from '../domain/budget.ts'
 import type { ObsidianNoteReferenceItem, ReferenceItem, ReferenceSet } from '../domain/model.ts'
-import { canonicalSha256, documentHash, selectedTextHash } from '../protocol/index.ts'
+import { canonicalSha256, documentHash, selectedTextHash, ReferenceSourceSchema } from '../protocol/index.ts'
 import { ReferenceItemSchema } from './store.ts'
 import type { HostSourceRegistry } from './source-registry.ts'
 import { SourcePreparationError } from './source-registry.ts'
@@ -158,6 +158,15 @@ export async function prepareReferenceSet(
       // Reuse and retry prepare from the fixed source; never trust a previous prompt fragment as a source.
       const {initialContext: _previous, ...unprepared} = item
       preparedItems.push(clone(unprepared))
+      continue
+    }
+    if (item.sourceType === 'extension') {
+      try {
+        const prepared = ReferenceItemSchema.parse(await registry.prepare(item, signal))
+        if (canonicalSha256(prepared) !== canonicalSha256(item)) throw new Error('固定扩展来源的身份或正文已改变')
+        ReferenceSourceSchema.parse({ sourceType: item.sourceType, selectedText: item.selectedText, locator: item.locator, snapshot: item.snapshot })
+        preparedItems.push(clone(prepared))
+      } catch (error) { missing.push(blockedDetail(item, 'source-missing', error instanceof Error ? error.message : String(error), baselineBudget.estimatedTokens, baselineBudget.limit)) }
       continue
     }
     if (options.useSavedSnapshotFor?.has(item.referenceId)) {

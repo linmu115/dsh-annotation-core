@@ -6,7 +6,7 @@ import type {
   DshMessageCapture,
   DshMessageReferenceSource,
   ReferenceSource,
-  SourceType,
+  SourceAdapterKey,
 } from '../protocol/index.ts'
 
 export type { SelectionAction } from '../client/selection-actions.ts'
@@ -115,7 +115,7 @@ export interface AnnotationCoreClient {
   handleAnswerLink(sessionId: string, href: string): boolean
   openAnnotation(setId: string, referenceId?: string): void
   openAnnotationInSession(sessionId: string, setId: string, referenceId?: string): Promise<boolean>
-  registerSourceAdapter(type: SourceType, adapter: ClientSourceAdapter): () => void
+  registerSourceAdapter(type: SourceAdapterKey, adapter: ClientSourceAdapter): () => void
 }
 
 declare module '@deepseek-ai/cordis' {

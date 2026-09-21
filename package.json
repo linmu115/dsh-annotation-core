@@ -1,6 +1,6 @@
 {
   "name": "dsh-annotation-core",
-  "version": "0.3.12-rc2.19",
+  "version": "0.3.12-rc2.23",
   "private": false,
   "description": "Shared annotation state, submission, prompt, and UI core for DeepSeek Harness plugins.",
   "type": "module",
@@ -39,13 +39,7 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "lib/index.js",
-    "lib/client.js",
-    "lib/protocol.js",
-    "lib/client-api.js",
-    "lib/host-api.js",
-    "lib/typert.js",
-    "lib/remote.js",
+    "lib/*.js",
     "lib/types/**/*.d.ts",
     "cordis.patch.yml",
     "docs/changes",
@@ -55,7 +49,8 @@
     "README.md",
     "README_EN.md",
     "LICENSE",
-    "scripts/patch-native-reference-input.mjs"
+    "scripts/patch-native-reference-input.mjs",
+    "docs"
   ],
   "engines": {
     "node": ">=20"
@@ -136,6 +131,8 @@
     "@deepseek-ai/dsh-session": "0.1.5-rc.2",
     "@deepseek-ai/dsh-storage-domain": "0.1.5-rc.2",
     "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-timeout": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-token-meter": "0.1.5-rc.2",
     "@deepseek-ai/dsh-tools": "0.1.5-rc.2",
     "@deepseek-ai/dsh-typert-protocol": "0.1.5-rc.2",
     "@deepseek-ai/schemastery": "*",
@@ -167,6 +164,7 @@
     "@deepseek-ai/dsh-storage-json": "0.1.5-rc.2",
     "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.2",
     "@deepseek-ai/dsh-timeout": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-token-meter": "0.1.5-rc.2",
     "@deepseek-ai/dsh-tools": "0.1.5-rc.2",
     "@deepseek-ai/dsh-typert-loader": "0.1.5-rc.2",
     "@deepseek-ai/dsh-typert-protocol": "0.1.5-rc.2",
@@ -228,6 +226,12 @@
       "optional": true
     },
     "@deepseek-ai/dsh-client-file-upload": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-timeout": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-token-meter": {
       "optional": true
     }
   },

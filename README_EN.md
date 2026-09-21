@@ -1,3 +1,5 @@
+> Historical documentation. For the current independent RC release, follow [README](README.md) and [installation guide](docs/INSTALL.md). Maintenance is not required for basic local operation.
+
 # dsh-annotation-core
 
 Shared annotation bubbles, cross-session references, reliable submission and historical annotation details for DSH plugins. Current source version: **0.3.12-rc2.12**, targeting official **DSH 0.1.5-rc.2 / the web profile**. This does not imply an npm release; build and install matching local packages to use this branch.

@@ -12,6 +12,10 @@ import { SessionSettlementTracker, StartupSubmissionReconciler } from './host/se
 import { AnnotationSubmissionCoordinator } from './host/submit-annotated.ts'
 import { registerAnnotationSystemPrompt } from './host/system-prompt.ts'
 import { AnnotationCoreRemoteService } from './remote/service.ts'
+import { openSessionExtensionData, type SessionExtensionData } from './host/session-extension-data.ts'
+import { LocalSessionContext, localSessionSource } from './host/local-session-context.ts'
+import { sessionContextRouter } from './host/session-context-router.ts'
+import type { UpstreamHost } from './host/upstream.ts'
 
 export * from './public/host-api.ts'
 export { SourcePreparationError } from './host/source-registry.ts'
@@ -83,9 +87,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     new AnnotationCoreRemoteService(ctx, opened.store, undefined, undefined, discardOutbox, deleteOutbox)
     return
   }
+  const extensions = ctx.get('sessionExtensionData' as never) as SessionExtensionData | undefined ?? await openSessionExtensionData(ctx)
+  if (!ctx.get('sessionReferenceContext' as never)) {
+    const local = new LocalSessionContext(extensions, localSessionSource(ctx))
+    ctx.provide('sessionReferenceContext' as never, sessionContextRouter(local, () => ctx.get('sessionReferenceContextProvider' as never) as UpstreamHost | undefined) as never)
+  }
   const settlements = new SessionSettlementTracker(ctx)
   const outbox = new BacklinkOutbox(opened.store, sources, Date.now, sessionId => deleteOutbox?.kick(sessionId))
-  ctx.inject(['maintenanceSessionContext'], connected => {
+  ctx.inject(['sessionReferenceContext'], connected => {
     let active = false, disposed = false
     const retry = async () => {
       if (active || disposed) return

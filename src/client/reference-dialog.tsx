@@ -142,7 +142,7 @@ export function ReferenceDialog({ controller, sources, updateComment, remove, de
           aria-pressed={item.referenceId === activeItem.referenceId}
           onClick={() => { setActiveReferenceId(item.referenceId); setError('') }}
           key={item.referenceId}
-        >{item.sourceType === 'obsidian-note' ? item.locator.notePath.split('/').pop() : item.locator.upstream?.sourceTitle ?? item.selectedText.slice(0, 18)}</button>)}
+        >{item.sourceType === 'obsidian-note' ? item.locator.notePath.split('/').pop() : item.sourceType === 'extension' ? item.locator.providerId : item.locator.upstream?.sourceTitle ?? item.selectedText.slice(0, 18)}</button>)}
       </nav>}
       <div className="dshAnnotationDialogBody">
         <article

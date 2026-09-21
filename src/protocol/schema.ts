@@ -85,9 +85,25 @@ export const ObsidianNoteReferenceSourceSchema = z.object({
   }
 })
 
+export const ExtensionLocatorSchema = z.object({
+  providerId: z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/u),
+  objectId: NonEmptyStringSchema, revision: NonEmptyStringSchema,
+  selectedTextHash: Sha256DigestSchema,
+  metadata: z.record(z.string(), z.json()).optional(),
+}).strict()
+export const ExtensionReferenceSourceSchema = z.object({
+  sourceType: z.literal('extension'), selectedText: NonEmptyStringSchema,
+  locator: ExtensionLocatorSchema, snapshot: SourceSnapshotSchema,
+}).strict().superRefine((source, context) => {
+  if (source.locator.selectedTextHash !== selectedTextHash(source.selectedText) ||
+      source.snapshot.documentHash !== documentHash(source.snapshot.markdown) ||
+      source.snapshot.markdown !== source.selectedText)
+    context.addIssue({ code: 'custom', message: 'Extension references require an immutable selected-text snapshot and matching hashes' })
+})
 export const ReferenceSourceSchema = z.union([
   DshMessageReferenceSourceSchema,
   ObsidianNoteReferenceSourceSchema,
+  ExtensionReferenceSourceSchema,
 ])
 
 const ProtocolEnvelopeSchema = { annotationProtocolVersion: z.literal(ANNOTATION_PROTOCOL_VERSION) }
@@ -176,7 +192,8 @@ export const BacklinkReceiptV2Schema = z.object({
   writtenAt: z.number().int().nonnegative(),
 }).strict()
 
-export type SourceType = 'dsh-message' | 'obsidian-note'
+export type SourceType = 'dsh-message' | 'obsidian-note' | 'extension'
+export type SourceAdapterKey = Exclude<SourceType, 'extension'> | `extension:${string}`
 export type MaintenanceLogicalTarget = z.infer<typeof MaintenanceLogicalTargetSchema>
 export type DshMessageCapture = z.infer<typeof DshMessageCaptureSchema>
 export type DshMessageLocator = z.infer<typeof DshMessageLocatorSchema>
@@ -185,6 +202,9 @@ export type SourceSnapshot = z.infer<typeof SourceSnapshotSchema>
 export type DshMessageReferenceSource = z.infer<typeof DshMessageReferenceSourceSchema>
 export type ObsidianNoteReferenceSource = z.infer<typeof ObsidianNoteReferenceSourceSchema>
 export type ReferenceSource = z.infer<typeof ReferenceSourceSchema>
+export function sourceAdapterKey(source: Pick<ReferenceSource, 'sourceType' | 'locator'>): SourceAdapterKey {
+  return source.sourceType === 'extension' ? `extension:${(source.locator as z.infer<typeof ExtensionLocatorSchema>).providerId}` : source.sourceType
+}
 export type ObsidianReferenceCaptureV2 = z.infer<typeof ObsidianReferenceCaptureV2Schema>
 export type ReferenceClaimV2 = z.infer<typeof ReferenceClaimV2Schema>
 export type ReferenceRefreshRequestV2 = z.infer<typeof ReferenceRefreshRequestV2Schema>

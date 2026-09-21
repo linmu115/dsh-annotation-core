@@ -82,9 +82,9 @@ describe('native context DSH tool boundaries', () => {
     scoped.provide('tools', { register: (tool: { name: string }) => { registered.add(tool.name); return () => registered.delete(tool.name) } } as never)
     const agent = { ...f.agent, ctx: scoped } as Agent
     f.ctx.provide('tools', { register: vi.fn() } as never)
-    f.ctx.provide('maintenanceNativeContext' as never, f.host)
+    f.ctx.provide('sessionNativeContext' as never, f.host)
     registerNativeContextTools(f.ctx, f.budgets)
-    await vi.waitFor(() => expect(f.ctx.get('maintenanceNativeContext' as never)).toBe(f.host))
+    await vi.waitFor(() => expect(f.ctx.get('sessionNativeContext' as never)).toBe(f.host))
     f.ctx.emit('agent/created', { agent })
     await vi.waitFor(() => expect(registered.size).toBe(9))
     f.request.mockRejectedValue(new Error('Adapter 已停用'))
@@ -105,11 +105,11 @@ describe('native context DSH tool boundaries', () => {
   it('registers only agent-scoped native tools and disposes them with the optional capability', async () => {
     const f = fixture(), globalRegister = vi.fn(), scopedDisposes: (() => void)[] = [], scopedRegister = vi.fn(() => { const dispose = vi.fn(); scopedDisposes.push(dispose); return dispose })
     f.ctx.provide('tools', { register: globalRegister } as never)
-    f.ctx.provide('maintenanceNativeContext' as never, f.host)
+    f.ctx.provide('sessionNativeContext' as never, f.host)
     const nativeCtx = new Context(); nativeCtx.provide('tools', { register: scopedRegister } as never)
     const nativeAgent = { ...f.agent, ctx: nativeCtx } as Agent
     registerNativeContextTools(f.ctx, f.budgets)
-    await vi.waitFor(() => expect(f.ctx.get('maintenanceNativeContext' as never)).toBe(f.host))
+    await vi.waitFor(() => expect(f.ctx.get('sessionNativeContext' as never)).toBe(f.host))
     f.ctx.emit('agent/created', { agent: nativeAgent })
     await vi.waitFor(() => expect(scopedRegister).toHaveBeenCalledTimes(9))
     f.ctx.emit('agent/created', { agent: { ...nativeAgent, options: { provider: 'codex' } } as Agent })

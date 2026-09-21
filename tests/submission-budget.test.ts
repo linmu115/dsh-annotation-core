@@ -140,6 +140,31 @@ describe('initial reference allowance', () => {
     expect(withFile.maxTokens).toBeLessThan(baseline - 9000)
     expect(withFile.maxTokens).toBeGreaterThan(0)
   })
+  it('reads the host token meter instead of raw bytes before assigning reference space', async () => {
+    const f = fixture()
+    const measure = vi.fn(() => ({ surfaceTokens: 50000 }))
+    f.ctx.provide('tokenMeter' as never, { measure } as never)
+    const metered = (await f.budget()).maxTokens!
+    expect(measure).toHaveBeenCalledOnce()
+    // The pending message is priced on top of the measured surface, so a byte
+    // count must not be subtracted from the token window.
+    const pendingMessageTokens = Math.ceil(Buffer.byteLength(JSON.stringify(f.user())) / 4)
+    expect(metered).toBe(65536 - 50000 - pendingMessageTokens - 8192 - 4096)
+    expect(metered).toBeGreaterThan(0)
+  })
+  it('falls back to byte accounting when the host token meter is absent or fails', async () => {
+    const absent = fixture()
+    const baseline = (await absent.budget()).maxTokens!
+    const throwing = fixture()
+    throwing.ctx.provide('tokenMeter' as never, { measure: () => { throw new Error('meter unavailable') } } as never)
+    expect((await throwing.budget()).maxTokens).toBe(baseline)
+    const malformed = fixture()
+    malformed.ctx.provide('tokenMeter' as never, { measure: () => ({ surfaceTokens: Number.NaN }) } as never)
+    expect((await malformed.budget()).maxTokens).toBe(baseline)
+    const empty = fixture()
+    empty.ctx.provide('tokenMeter' as never, { measure: () => ({}) } as never)
+    expect((await empty.budget()).maxTokens).toBe(baseline)
+  })
   it('does not invent capacity, media costs, or unused space in an already full request', async () => {
     const f = fixture()
     await expect(submissionReferenceBudget(f.ctx, f.agent, f.user(), f.selection, undefined)).rejects.toThrow('容量')

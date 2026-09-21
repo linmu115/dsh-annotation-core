@@ -15,8 +15,8 @@ interface ManagedRuntimeSupport {
 }
 
 export function registerUpstreamTools(ctx: Context, store: AnnotationStore, budgets: UpstreamToolBudgets): void {
-  // Removing the optional Maintenance capability removes only these tools.
-  ctx.inject(['maintenanceSessionContext'], capability => {
+  // Removing the session reference capability removes only these tools.
+  ctx.inject(['sessionReferenceContext'], capability => {
     capability.inject(['tools'], toolCtx => {
       for (const search of [false, true]) {
         const tool = defineTool({

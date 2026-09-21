@@ -131,8 +131,26 @@ export async function submissionReferenceBudget(ctx: Context, agent: Agent, mess
   if (!Number.isSafeInteger(nativeTools) || nativeTools < 0) throw new Error('Codex 工具额度无效，已保留草稿')
   const requestBytes = nativeBytes === undefined ? Buffer.byteLength(JSON.stringify(request))
     : nativeBytes + Buffer.byteLength(JSON.stringify(system)) + nativeTools
+  // The context window is denominated in tokens, so the conversation's share of
+  // it must be counted in tokens too. Raw JSON bytes are not tokens: for CJK a
+  // UTF-8 byte is about a third of a token, so byte counting overstates the
+  // conversation severalfold and can zero the reference allowance in a session
+  // that still has ample room. Prefer the host's own meter, which prices the
+  // current surface under the same fixed-density heuristic the UI reports.
+  // Skip it on the bounded Codex route, which already reports tokens.
+  const measuredSurfaceTokens = native === undefined ? (() => {
+    try {
+      return (ctx.get('tokenMeter' as never) as { measure?(session: unknown): { surfaceTokens?: unknown } } | undefined)
+        ?.measure?.(agent.session)?.surfaceTokens
+    } catch { return undefined }
+  })() : undefined
+  const surfaceTokens = typeof measuredSurfaceTokens === 'number'
+    && Number.isSafeInteger(measuredSurfaceTokens) && measuredSurfaceTokens >= 0 ? measuredSurfaceTokens : undefined
+  const occupiedTokens = native !== undefined ? requestBytes + imageTokens
+    : selectedRequestTokens ?? (surfaceTokens === undefined ? requestBytes + imageTokens
+      : surfaceTokens + Math.ceil(Buffer.byteLength(JSON.stringify(message)) / 4) + imageTokens)
   const remaining = Math.max(0, Math.min(
-    window === undefined ? Infinity : window - (native?.inputTokens ?? 0) - (native?.outputTokens ?? 0) - (selectedRequestTokens ?? requestBytes + imageTokens) - reserve - 4096,
+    window === undefined ? Infinity : window - (native?.inputTokens ?? 0) - (native?.outputTokens ?? 0) - occupiedTokens - reserve - 4096,
     native === undefined ? Infinity : native.maxInputBytes - requestBytes - reserve - 4096,
     native?.maxReferenceTokens ?? Infinity))
   if (!Number.isSafeInteger(remaining)) throw new Error('引用额度尚不可确认，已保留草稿')

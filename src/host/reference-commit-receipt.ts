@@ -5,7 +5,7 @@ import { BacklinkReceiptV2Schema } from '../protocol/index.ts'
 export const ReferenceCommitReceiptSchema = z.union([
   BacklinkReceiptV2Schema,
   z.object({
-    kind: z.literal('maintenance-reference'),
+    kind: z.enum(['maintenance-reference', 'source-reference']),
     referenceId: z.string().min(1),
     targetMessageId: z.string().min(1),
     writtenAt: z.number().int().nonnegative(),

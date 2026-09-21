@@ -6,10 +6,11 @@ import { PreparedUpstreamContextSchema } from '../domain/upstream-context.ts'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 
-/** Structural subset of the optional host capability; Engine owns the full DTO and all range rules. */
+/** Structural subset of the optional host capability; The provider owns range and revision validation. */
 export interface UpstreamHost {
   readonly protocolVersion: 1
   directory(workspaceId?: string, after?: string): Promise<{ items: {id:string;title:string}[];nextCursor:string|null }>
+  preview?(sourceNativeSessionId: string, cursor?: string, selection?: { sourceVersionId: string; sourceAnchorId: string }): Promise<unknown>
   capture(input:{operationId:string;sourceNativeSessionId:string;targetNativeSessionId:string;anchorId:string;selectedText:string;expectedSourceVersionId?:string}): Promise<{
     referenceId:string;sourceTitle:string;sourceVersionId:string;cutoffEventId:string;selectedText:string
   }>
@@ -22,8 +23,8 @@ export interface UpstreamHost {
   endExecution?(targetNativeSessionId:string,executionId:string):Promise<unknown>
 }
 export function upstreamHost(ctx:Context):UpstreamHost {
-  const bridge=ctx.get('maintenanceSessionContext' as never) as UpstreamHost|undefined
-  if(bridge?.protocolVersion!==1)throw new Error('当前实例尚未接通 Maintenance 跨会话引用能力')
+  const bridge=ctx.get('sessionReferenceContext' as never) as UpstreamHost|undefined
+  if(bridge?.protocolVersion!==1)throw new Error('当前实例的会话引用能力尚未就绪')
   return bridge
 }
 export function upstreamOf(item:ReferenceItem){return item.sourceType==='dsh-message'?item.locator.upstream:undefined}
@@ -43,13 +44,13 @@ export async function inspectUpstream(ctx:Context,item:ReferenceItem):Promise<vo
   const ref=upstreamOf(item);if(!ref)return
   const current=await upstreamHost(ctx).inspect(ref.targetSessionId,ref.referenceId)
   if(current.selectedText!==item.selectedText||current.sourceVersionId!==ref.sourceVersionId||current.cutoffEventId!==ref.cutoffEventId)
-    throw new Error('引用气泡与 Maintenance 中的固定来源不一致，请重新选择')
+    throw new Error('引用气泡与固定来源不一致，请重新选择')
 }
 
 /** Resolve the saved immutable reference through the target-scoped host, never a fresh capture. */
 export async function describeGraphUpstream(ctx:Context,targetSessionId:string,profileId:string,referenceId:string) {
   const host=upstreamHost(ctx)
-  if (!host.describe) throw new Error('Maintenance 尚未提供主干图引用接入，请更新匹配的适配器')
+  if (!host.describe) throw new Error('当前会话来源未提供图引用接入，请检查来源能力')
   const value=z.object({sourceNativeSessionId:z.string().min(1),record:z.object({
     referenceId:z.literal(referenceId),sourceAnchorId:z.string().min(1),sourceVersionId:z.string().min(1),
     cutoffEventId:z.string().min(1),sourceTitle:z.string(),selectedText:z.string(),state:z.enum(['pending','sent']),

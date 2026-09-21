@@ -9,7 +9,7 @@ import type * as React from 'react'
 import type { Context } from '../context-types.ts'
 import type { ReferenceItem, ReferenceSet } from '../domain/model.ts'
 import { selectedTextHash } from '../protocol/serialization.ts'
-import type { DshMessageCapture, DshMessageReferenceSource, ReferenceSource, SourceType } from '../protocol/index.ts'
+import type { DshMessageCapture, DshMessageReferenceSource, ReferenceSource, SourceAdapterKey } from '../protocol/index.ts'
 import type { AnnotationCoreClient, AnnotationCoreFeature, ClientSourceAdapter, PlainComposerPort } from '../public/client-api.ts'
 import { annotationRemoteForSession, unwrapRemote } from '../remote/client.ts'
 import type { AnnotationCoreRemoteNamespace } from '../remote/client.ts'
@@ -509,6 +509,6 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
     this.dialog.open(set, referenceId)
   }
 
-  registerSourceAdapter(type: SourceType, adapter: ClientSourceAdapter): () => void { return this.sources.register(type, adapter) }
+  registerSourceAdapter(type: SourceAdapterKey, adapter: ClientSourceAdapter): () => void { return this.sources.register(type, adapter) }
   sourceAdapter(item: ReferenceItem): ClientSourceAdapter | undefined { return this.sources.forItem(item) }
 }

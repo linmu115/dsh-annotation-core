@@ -39,7 +39,12 @@ export interface ObsidianNoteReferenceItem extends ReferenceItemBase {
   readonly snapshot: SourceSnapshot
 }
 
-export type ReferenceItem = DshMessageReferenceItem | ObsidianNoteReferenceItem
+export interface ExtensionReferenceItem extends ReferenceItemBase {
+  readonly sourceType: 'extension'
+  readonly locator: Extract<ReferenceSource, { sourceType: 'extension' }>['locator']
+  readonly snapshot: SourceSnapshot
+}
+export type ReferenceItem = DshMessageReferenceItem | ObsidianNoteReferenceItem | ExtensionReferenceItem
 
 export interface ReferenceSet {
   readonly schemaVersion: typeof REFERENCE_SET_SCHEMA_VERSION

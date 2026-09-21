@@ -1,4 +1,5 @@
 import { ReferenceCommitReceiptSchema, type ReferenceCommitReceipt } from './reference-commit-receipt.ts'
+import { assertSessionWritable, observeSessionWriteAccess } from './write-access.ts'
 import { SubmittedMessageSchema, type SubmittedMessage } from './submitted-message.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
@@ -24,6 +25,7 @@ import {
   ReferenceSourceSchema,
   Sha256DigestSchema,
   SourceSnapshotSchema,
+  ExtensionLocatorSchema,
 } from '../protocol/index.ts'
 import type { ReferenceSource } from '../protocol/index.ts'
 import type { AnnotationReferenceDirectory } from '../public/host-api.ts'
@@ -57,6 +59,7 @@ const ObsidianReferenceItemSchema = z.object({
 export const ReferenceItemSchema = z.discriminatedUnion('sourceType', [
   DshReferenceItemSchema,
   ObsidianReferenceItemSchema,
+  ObsidianReferenceItemSchema.extend({ sourceType: z.literal('extension'), locator: ExtensionLocatorSchema }),
 ])
 
 export const ReferenceSetSchema = z.object({
@@ -259,7 +262,7 @@ const DeletedReferenceRecordSchema = z.object({
   setId: NonEmptyStringSchema,
   referenceId: NonEmptyStringSchema,
   scope: z.enum(['pending', 'sent']),
-  sourceType: z.enum(['dsh-message', 'obsidian-note']),
+  sourceType: z.enum(['dsh-message', 'obsidian-note', 'extension']),
   deletedAt: NonNegativeIntegerSchema,
   disposition: z.literal('discard').optional(),
 }).strict()
@@ -348,6 +351,7 @@ export class AnnotationStoreDisposedError extends Error {
 
 export interface AnnotationStoreOptions {
   readonly profileId: string
+  readonly assertWritable?: () => Promise<void>
 }
 
 type SessionTable = KvTable<string, SessionAggregate>
@@ -430,12 +434,12 @@ function sourceFromItem(item: ReferenceItem): ReferenceSource {
   if (item.sourceType === 'dsh-message') {
     return { sourceType: item.sourceType, selectedText: item.selectedText, locator: clone(item.locator) }
   }
-  return {
+  return ReferenceSourceSchema.parse({
     sourceType: item.sourceType,
     selectedText: item.selectedText,
     locator: clone(item.locator),
     snapshot: clone(item.snapshot),
-  }
+  })
 }
 
 function abortError(): DOMException {
@@ -798,7 +802,7 @@ export class AnnotationStore {
       const backlinkJobs = { ...aggregate.backlinkJobs }
       delete backlinkJobs[`${input.setId}:${input.referenceId}`]
       const committedDeleteJobs = { ...aggregate.committedDeleteJobs }
-      if (item.sourceType === 'obsidian-note' || item.locator.upstream) {
+      if (item.sourceType !== 'dsh-message' || item.locator.upstream) {
         const key = `${input.setId}:${input.referenceId}`
         committedDeleteJobs[key] ??= {
           setId: input.setId,
@@ -1772,6 +1776,7 @@ export class AnnotationStore {
     let result!: T
     const work = prior.then(async () => {
       this.assertOpen()
+      await this.options.assertWritable?.()
       const stored = this.table.get(key)
       const current = stored === undefined ? emptyAggregate(this.options.profileId, sessionId) : clone(stored)
       assertIdentity(current, this.options.profileId, sessionId)
@@ -1834,9 +1839,10 @@ export interface OpenAnnotationStore {
 }
 
 export async function openAnnotationStore(ctx: Context, profileId: string): Promise<OpenAnnotationStore> {
+  observeSessionWriteAccess(ctx)
   const domain = await ctx.storageDomain.open(annotationCoreDomainSpec)
   const table = domain.table('sessions')
-  const store = new AnnotationStore(table, { profileId })
+  const store = new AnnotationStore(table, { profileId, assertWritable: () => assertSessionWritable(ctx) })
   let closed = false
   return {
     store,

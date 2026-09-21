@@ -158,7 +158,7 @@ export function nativeContextToolDefinitions(host: NativeContextHost, controller
 
 /** Scoped registrations participate in normal DSH policy, cancellation, presentation and disposal. No managed export. */
 export function registerNativeContextTools(ctx: Context, budgets: UpstreamToolBudgets): void {
-  ctx.inject(['maintenanceNativeContext', 'tools'], capability => {
+  ctx.inject(['sessionNativeContext', 'tools'], capability => {
     const host = nativeContextHost(capability)
     if (!host) return
     const controller = new NativeSurfaceController(host)

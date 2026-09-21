@@ -39,7 +39,7 @@ async function fixture(sent=true,itemId='reference'){
       items:[{eventId:'question',role:'user',text:'Why use gradient checkpointing?',offset:0,complete:true},
         {eventId:'completed-answer',role:'assistant',text:'bounded upstream: recomputation trades time for GPU memory. Full selected answer.',offset:0,complete:true}],
       selectedTurn:{complete:true,omittedIntermediateItems:2,detailsCursor:'intermediate-tool'},nextCursor:'older-turn',hasMore:true}))}
-  ctx.provide('maintenanceSessionContext' as never,bridge)
+  ctx.provide('sessionReferenceContext' as never,bridge)
   const registry=new HostSourceRegistry(ctx)
   const events=[{type:'turn/start',seq:100,time:10}]
   const agent={id:'target',ctx,session:{id:'target',inheritedEventCount:0,header:{},snapshotEvents:()=>events,
@@ -94,7 +94,7 @@ describe('fixed upstream annotation lifecycle and model access',()=>{
       referenceId:'ref',sourceAnchorId:'real-message-id',sourceVersionId:'old-retained-version',cutoffEventId:'fixed-completed-event',
       sourceTitle:'Source',selectedText:'quote',state:'pending',
     }})),capture=vi.fn()
-    ctx.provide('maintenanceSessionContext' as never,{protocolVersion:1,describe,capture})
+    ctx.provide('sessionReferenceContext' as never,{protocolVersion:1,describe,capture})
     const result=await describeGraphUpstream(ctx,'target','web','ref')
     expect(result.source.locator).toMatchObject({sessionId:'native-source',messageId:'real-message-id',upstream:{sourceVersionId:'old-retained-version',targetSessionId:'target'}})
     expect(describe).toHaveBeenCalledExactlyOnceWith('target','ref')
@@ -149,7 +149,7 @@ describe('fixed upstream annotation lifecycle and model access',()=>{
   it('carries the selected graph material version to the atomic capture and rejects a mismatching host receipt',async()=>{
     const ctx=new Context()
     const capture=vi.fn(async()=>({referenceId:'ref',sourceTitle:'Source',sourceVersionId:'v1',cutoffEventId:'answer',selectedText:'selected'}))
-    ctx.provide('maintenanceSessionContext' as never,{protocolVersion:1,capture})
+    ctx.provide('sessionReferenceContext' as never,{protocolVersion:1,capture})
     const input=DshMessageCaptureSchema.parse({sourceSessionId:'source',anchorId:'answer',messageId:'answer',role:'assistant',
       occurrence:0,selectedText:'selected',expectedSourceVersionId:'v1'})
     const source=await captureUpstream(ctx,'target','web',input,'graph-op')

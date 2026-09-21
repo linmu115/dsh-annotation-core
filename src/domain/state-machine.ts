@@ -59,12 +59,12 @@ function sourceFromItem(item: ReferenceItem): ReferenceSource {
   if (item.sourceType === 'dsh-message') {
     return { sourceType: item.sourceType, selectedText: item.selectedText, locator: { ...item.locator } }
   }
-  return {
+  return ReferenceSourceSchema.parse({
     sourceType: item.sourceType,
     selectedText: item.selectedText,
     locator: { ...item.locator },
     snapshot: { ...item.snapshot },
-  }
+  })
 }
 
 function itemFromSource(referenceId: string, source: ReferenceSource, number: number, userComment: string): ReferenceItem {
@@ -82,11 +82,8 @@ function itemFromSource(referenceId: string, source: ReferenceSource, number: nu
   return {
     referenceId,
     number,
-    sourceType: source.sourceType,
-    selectedText: source.selectedText,
+    ...structuredClone(source),
     userComment,
-    locator: { ...source.locator },
-    snapshot: { ...source.snapshot },
     backlinkState: 'pending',
   }
 }

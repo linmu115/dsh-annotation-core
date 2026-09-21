@@ -48,7 +48,7 @@ function entry(item: ReferenceItem, setId: string, state: AnnotationDirectoryEnt
       source.upstreamReferenceId = item.locator.upstream.referenceId
       source.title = item.locator.upstream.sourceTitle.slice(0, 500)
     }
-  } else {
+  } else if (item.sourceType === 'obsidian-note') {
     const vaultId = bounded(item.locator.vaultId, 256), notePath = bounded(item.locator.notePath, 2048), anchorId = bounded(item.locator.blockId, 256)
     if (vaultId) source.vaultId = vaultId
     if (notePath) source.notePath = notePath

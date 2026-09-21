@@ -5,7 +5,7 @@ import type { Context } from '@deepseek-ai/cordis'
 
 import type { ReferenceItem } from '../domain/model.ts'
 import type { ReferenceCommitReceipt } from './reference-commit-receipt.ts'
-import type { SourceType } from '../protocol/index.ts'
+import { sourceAdapterKey, type SourceAdapterKey } from '../protocol/index.ts'
 import type {
   AnnotationCoreHost,
   DeletedReferenceBinding,
@@ -40,8 +40,8 @@ export class SourcePreparationError extends Error {
 export class HostSourceRegistry extends Service implements AnnotationCoreHost {
   get referenceDirectory() { return this.options.referenceDirectory }
   readonly inputAcceptance = new InputAcceptanceRegistry()
-  private readonly adapters = new Map<SourceType, HostSourceAdapter>()
-  private readonly adapterListeners = new Set<(type: SourceType) => void>()
+  private readonly adapters = new Map<SourceAdapterKey, HostSourceAdapter>()
+  private readonly adapterListeners = new Set<(type: SourceAdapterKey) => void>()
 
   constructor(ctx: Context, private readonly options: HostSourceRegistryOptions = {}) {
     super(ctx, 'annotationCoreHost')
@@ -63,7 +63,8 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
     return this.options.deleteReferenceLink(sessionId, setId, referenceId)
   }
 
-  registerSourceAdapter(type: SourceType, adapter: HostSourceAdapter): () => void {
+  registerSourceAdapter(type: SourceAdapterKey, adapter: HostSourceAdapter): () => void {
+    if (!/^(dsh-message|obsidian-note|extension:[a-z][a-z0-9.-]{0,79})$/u.test(type)) throw new Error('Invalid source adapter key')
     if (this.adapters.has(type)) throw new Error(`Annotation source adapter ${JSON.stringify(type)} is already registered`)
     const owned = this.ctx.effect(() => {
       this.adapters.set(type, adapter)
@@ -75,24 +76,24 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
     return () => { owned() }
   }
 
-  onAdapterRegistered(listener: (type: SourceType) => void): () => void {
+  onAdapterRegistered(listener: (type: SourceAdapterKey) => void): () => void {
     this.adapterListeners.add(listener)
     return () => { this.adapterListeners.delete(listener) }
   }
 
-  require(type: SourceType): HostSourceAdapter {
+  require(type: SourceAdapterKey): HostSourceAdapter {
     const adapter = this.adapters.get(type)
     if (adapter === undefined) throw new Error(`No annotation source adapter is registered for ${JSON.stringify(type)}`)
     return adapter
   }
 
-  get(type: SourceType): HostSourceAdapter | undefined {
+  get(type: SourceAdapterKey): HostSourceAdapter | undefined {
     return this.adapters.get(type)
   }
 
   async prepare(item: ReferenceItem, signal: AbortSignal): Promise<ReferenceItem> {
     if(upstreamOf(item)){await inspectUpstream(this.ctx,item);signal.throwIfAborted();return item}
-    return this.require(item.sourceType).prepare(item, signal)
+    return this.require(sourceAdapterKey(item)).prepare(item, signal)
   }
 
   async prepareUpstreamContext(item: ReferenceItem, executionId: string, maxBytes: number, totalBytes: number, signal: AbortSignal) {
@@ -113,7 +114,7 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
       await upstreamHost(this.ctx).bind(upstream.targetSessionId, upstream.referenceId, null)
       return true
     }
-    const adapter = this.adapters.get(item.sourceType)
+    const adapter = this.adapters.get(sourceAdapterKey(item))
     if (!adapter?.discardPending) return false
     await adapter.discardPending(item)
     return true
@@ -129,7 +130,11 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
       return { kind: 'maintenance-reference', referenceId: upstream.referenceId,
         targetMessageId: binding.userMessageId, writtenAt: Date.now() }
     }
-    return this.adapters.get(binding.item.sourceType)?.commitBacklink?.(binding)
+    const adapter = this.adapters.get(sourceAdapterKey(binding.item))
+    if (!adapter) throw new Error('Source adapter unavailable')
+    if (binding.item.sourceType === 'extension' && !adapter.commitBacklink)
+      return { kind: 'source-reference', referenceId: binding.referenceId, targetMessageId: binding.userMessageId, writtenAt: Date.now() }
+    return adapter.commitBacklink?.(binding)
   }
 
   async deleteCommitted(binding: DeletedReferenceBinding): Promise<void> {
@@ -139,9 +144,10 @@ export class HostSourceRegistry extends Service implements AnnotationCoreHost {
       await upstreamHost(this.ctx).bind(binding.sessionId, upstream.referenceId, null)
       return
     }
-    const adapter = this.adapters.get(binding.item.sourceType)
+    const adapter = this.adapters.get(sourceAdapterKey(binding.item))
     if (adapter?.deleteCommitted === undefined) {
       if (binding.item.sourceType === 'dsh-message') return
+      if (binding.item.sourceType === 'extension' && adapter && !adapter.commitBacklink) return
       throw new Error(`No committed-reference deletion adapter is registered for ${binding.item.sourceType}`)
     }
     await adapter.deleteCommitted(binding)

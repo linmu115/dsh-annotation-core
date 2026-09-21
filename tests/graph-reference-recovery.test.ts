@@ -15,7 +15,7 @@ function fixture() {
   const bridge = {protocolVersion:1,status,bind:vi.fn(async()=>{}),describe:vi.fn(async()=>({sourceNativeSessionId:'source',record:{
     referenceId:'ref',sourceAnchorId:'reply',sourceVersionId:'v1',cutoffEventId:'end',selectedText:'quote',sourceTitle:'Source',state:'sent',targetMessageId:'original-user',
   }}))}
-  ctx.provide('maintenanceSessionContext' as never,bridge)
+  ctx.provide('sessionReferenceContext' as never,bridge)
   const remote = new AnnotationCoreRemoteService(ctx,store)
   const agent = {id:'target',ctx,session:{id:'target',inheritedEventCount:0,snapshotEvents:()=>[]}} as any
   return {ctx,table,store,source,bridge,remote,agent}

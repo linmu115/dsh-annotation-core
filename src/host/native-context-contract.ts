@@ -23,7 +23,7 @@ export interface NativeReleasePlan {
   state: string
 }
 export function nativeContextHost(ctx: Context): NativeContextHost | undefined {
-  const host = ctx.get('maintenanceNativeContext' as never) as unknown as NativeContextHost | undefined
+  const host = ctx.get('sessionNativeContext' as never) as unknown as NativeContextHost | undefined
   return host?.protocolVersion === 1 && host.capabilities?.nativeSurface === true && host.capabilities.tools === true ? host : undefined
 }
 export function isNativeContextAgent(agent: Agent): boolean {

@@ -19,7 +19,7 @@ describe('native AgentLoop execution without a live model', () => {
     await ctx.plugin(LlmRuntime); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime); await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
     const materials = new Map<string, NativeMaterial>(), plans: NativeReleasePlan[] = [], receipts: any[] = []
-    ctx.provide('maintenanceNativeContext' as never, { protocolVersion: 1, capabilities: { nativeSurface: true, tools: true },
+    ctx.provide('sessionNativeContext' as never, { protocolVersion: 1, capabilities: { nativeSurface: true, tools: true },
       async request(_id: string, operation: string, input: any) {
         if (operation === 'materials-register') { for (const material of input.materials) materials.set(material.materialId, material); return { recorded: true } }
         if (operation === 'release-plans') return { items: plans, materials: [...materials.values()] }

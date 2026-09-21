@@ -1,7 +1,11 @@
 import type { ReferenceItem } from '../domain/model.ts'
 import type { ReferenceSet } from '../domain/model.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { BacklinkReceiptV2, SourceType } from '../protocol/index.ts'
+import type { BacklinkReceiptV2, SourceType, SourceAdapterKey } from '../protocol/index.ts'
+export type { UpstreamHost as SessionReferenceContext } from '../host/upstream.ts'
+export type { NativeContextHost as SessionNativeContext } from '../host/native-context-contract.ts'
+export type { SessionExtensionData, SessionExtensionObject } from '../host/session-extension-data.ts'
+export { assertSessionWritable, observeSessionWriteAccess } from '../host/write-access.ts'
 
 export interface SentReferenceBinding {
   readonly profileId: string
@@ -45,7 +49,7 @@ export interface AnnotationDirectoryEntry {
   readonly targetMessageId?: string
   readonly referenceId: string
   readonly setId: string
-  readonly sourceType: 'dsh-message' | 'obsidian-note'
+  readonly sourceType: SourceType
   readonly state: 'pending' | 'committing' | 'sent' | 'failed' | 'deleted'
   readonly selectedText: string
   readonly userComment: string
@@ -86,7 +90,7 @@ export interface AnnotationCoreHost {
   readonly inputAcceptance?: {
     register(provider: InputAcceptanceProvider): () => void
   }
-  registerSourceAdapter(type: SourceType, adapter: HostSourceAdapter): () => void
+  registerSourceAdapter(type: SourceAdapterKey, adapter: HostSourceAdapter): () => void
   /** Read submitted references and the supplied agent's current input batch, excluding drafts. */
   listReferences?(agent: Agent): readonly ReferenceSet[]
   /**

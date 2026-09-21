@@ -20,6 +20,7 @@ function sourceLabel(set: ReferenceSet, referenceId: string): string {
   }
   if (item?.sourceType === 'dsh-message' && item.locator.upstream)
     return `上游引用 · ${item.locator.upstream.sourceTitle} · 至所选回复结束`
+  if (item?.sourceType === 'extension') return `${item.locator.providerId} · ${item.locator.objectId}`
   return 'DSH 会话'
 }
 
