@@ -37,3 +37,19 @@ dsh plugin --profile web add ./dsh-annotation-core-0.3.12-rc2.24.tgz
 **卸载**：`dsh plugin --profile web remove dsh-annotation-core`。卸载代码不等于删除业务数据，保留 DSH_HOME 才能保留恢复条件。
 
 完整说明（安装顺序、Vault 绑定、更新卸载、故障定位）：[INSTALL.md](docs/INSTALL.md)。本批为预发布，当前能力和未完成验收见 [发布验证记录](docs/RELEASE-20260920.md)。
+
+## 已知问题
+
+### 只有引用、没有正文时发送键不可用
+
+设计上允许「只提交引用、不写正文」：`composer-binding.tsx` 的 `canSubmit` 在 `pendingCount > 0` 时为真，`submitCore` 也只在正文与引用都为空时才报「请输入正文或添加引用」。
+
+但**原生输入框的发送键不读这个 `canSubmit`**。它靠 Core 用空 token 去认领一个命令来放行（`native-adapter.tsx`），而这个认领有两个问题：
+
+- `allowEmpty` 不是宿主的 `CommandClaim` 字段（宿主契约只有 `token`/`hint`/`attachments`/`submit`），是用交叉类型硬加的，宿主不会读到。
+- 认领会把输入框推进 `claimed` 态，而触发条件又要求 `phase === 'plain'`，条件自相矛盾。
+
+结果：只有引用、正文为空时，发送键可能保持灰色。此路径没有自动化测试覆盖。
+
+**未修复。** 修法需要改客户端行为，或由宿主提供一个「允许空提交」的正式入口。
+
