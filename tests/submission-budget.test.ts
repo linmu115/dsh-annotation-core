@@ -3,6 +3,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it, vi } from 'vitest'
 import { submissionReferenceBudget } from '../src/host/submission-budget.ts'
+import { estimateUtf8TokensFromBytes } from '../src/domain/budget.ts'
 
 function fixture() {
   const ctx = new Context()
@@ -146,9 +147,10 @@ describe('initial reference allowance', () => {
     f.ctx.provide('tokenMeter' as never, { measure } as never)
     const metered = (await f.budget()).maxTokens!
     expect(measure).toHaveBeenCalledOnce()
-    // The pending message is priced on top of the measured surface, so a byte
-    // count must not be subtracted from the token window.
-    const pendingMessageTokens = Math.ceil(Buffer.byteLength(JSON.stringify(f.user())) / 4)
+    // The pending message is priced on top of the measured surface at the same
+    // density the domain estimator uses, so a byte count is never subtracted
+    // from the token window.
+    const pendingMessageTokens = estimateUtf8TokensFromBytes(Buffer.byteLength(JSON.stringify(f.user())))
     expect(metered).toBe(65536 - 50000 - pendingMessageTokens - 8192 - 4096)
     expect(metered).toBeGreaterThan(0)
   })

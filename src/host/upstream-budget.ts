@@ -1,4 +1,5 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { estimateUtf8TokensFromBytes } from '../domain/budget.ts'
 
 interface Allowance { used: number; limit: number; executionId: string }
 export interface NativeUpstreamUsage {
@@ -18,12 +19,20 @@ function nativeHeadroom(usage: NativeUpstreamUsage | undefined, maxTokens?: numb
   return Math.max(0, Math.min(24000, Math.floor(window * 0.2), window - usage.inputTokens - usage.outputTokens - outputReserve - 4096))
 }
 
-/** One UTF-8 byte per token is deliberately conservative; this is not a tokenizer. */
+/**
+ * Headroom for on-demand upstream reads when the routed provider reports no
+ * native usage. The context window is denominated in tokens, so the request's
+ * JSON size must be converted before it is subtracted: counting raw UTF-8 bytes
+ * as tokens overstates the conversation severalfold (a CJK character is about
+ * one token but three bytes) and can zero the headroom in a session that still
+ * has room. Bytes are priced at the host's own density, matching
+ * `@deepseek-ai/dsh-token-meter`.
+ */
 export function upstreamHeadroom(contextWindow: number | undefined, request: unknown, maxTokens?: number): number {
   if (!contextWindow || !Number.isSafeInteger(contextWindow) || contextWindow <= 0) return 0
   const inputBytes = Buffer.byteLength(JSON.stringify(request))
   const outputReserve = Math.max(4096, maxTokens ?? Math.ceil(contextWindow / 4))
-  return Math.max(0, Math.min(24000, Math.floor(contextWindow * 0.2), contextWindow - inputBytes - outputReserve - 4096))
+  return Math.max(0, Math.min(24000, Math.floor(contextWindow * 0.2), contextWindow - estimateUtf8TokensFromBytes(inputBytes) - outputReserve - 4096))
 }
 
 /** The model never chooses its execution ID or allowance. Simultaneous calls reserve before awaiting. */

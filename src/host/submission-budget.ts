@@ -3,7 +3,7 @@ import { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { createSystemMessage, type GenerateOptions, type PreparedLlmCall, type UserMessage, type LlmResolvedModelInfo, type Message } from '@deepseek-ai/dsh-llm'
 import { renderPrompt, renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt'
-import type { ReferenceBudgetOptions } from '../domain/budget.ts'
+import { estimateUtf8TokensFromBytes, type ReferenceBudgetOptions } from '../domain/budget.ts'
 
 // Optional APIs exposed by the deployed RC2 context-aware host; older hosts
 // retain the conservative uncompressed path below.
@@ -148,7 +148,7 @@ export async function submissionReferenceBudget(ctx: Context, agent: Agent, mess
     && Number.isSafeInteger(measuredSurfaceTokens) && measuredSurfaceTokens >= 0 ? measuredSurfaceTokens : undefined
   const occupiedTokens = native !== undefined ? requestBytes + imageTokens
     : selectedRequestTokens ?? (surfaceTokens === undefined ? requestBytes + imageTokens
-      : surfaceTokens + Math.ceil(Buffer.byteLength(JSON.stringify(message)) / 4) + imageTokens)
+      : surfaceTokens + estimateUtf8TokensFromBytes(Buffer.byteLength(JSON.stringify(message))) + imageTokens)
   const remaining = Math.max(0, Math.min(
     window === undefined ? Infinity : window - (native?.inputTokens ?? 0) - (native?.outputTokens ?? 0) - occupiedTokens - reserve - 4096,
     native === undefined ? Infinity : native.maxInputBytes - requestBytes - reserve - 4096,

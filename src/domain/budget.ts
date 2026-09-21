@@ -96,6 +96,16 @@ export function estimateUtf8Tokens(text: string): number {
   return Math.ceil(new TextEncoder().encode(text).byteLength / 3)
 }
 
+/**
+ * Token price of an already-measured UTF-8 byte size, for callers that hold a
+ * byte count rather than the text. Shares {@link estimateUtf8Tokens}'s density
+ * so a byte size and the same text price agree. Callers subtract the result
+ * from a token-denominated context window; raw bytes must never be used there.
+ */
+export function estimateUtf8TokensFromBytes(bytes: number): number {
+  return Math.ceil(bytes / 3)
+}
+
 function contextWindow(options: ReferenceBudgetOptions): number {
   const value = options.contextWindow
   return value !== undefined && Number.isSafeInteger(value) && value > 0

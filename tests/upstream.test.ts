@@ -228,7 +228,7 @@ describe('fixed upstream annotation lifecycle and model access',()=>{
     first.settle('x'.repeat(first.bytes))
     expect(()=>budget.reserve(f.agent)).toThrow('额度')
   })
-  it('uses one host-owned allowance for concurrent reads and retries and includes request/tool/output space',async()=>{
+  it('uses one host-owned allowance for concurrent reads and retries and prices request space in tokens',async()=>{
     const f=await fixture(),budget=new UpstreamToolBudgets()
     const first=budget.reserve(f.agent,8000),second=budget.reserve(f.agent,8000)
     expect(first.executionId).toBe(second.executionId)
@@ -239,8 +239,12 @@ describe('fixed upstream annotation lifecycle and model access',()=>{
     f.events.push({type:'turn/start',seq:200,time:20})
     expect(budget.reserve(f.agent).executionId).not.toBe(first.executionId)
     expect(upstreamHeadroom(undefined,{})).toBe(0)
-    expect(upstreamHeadroom(16000,{messages:'x'.repeat(10000)},8192)).toBe(0)
-    expect(upstreamHeadroom(64000,{tools:'x'.repeat(50000)},8192)).toBeLessThan(2000)
+    // Priced in tokens: ~10015 bytes is ~3339 tokens, which fits a 16000-token
+    // window beside the 8192 output reserve, leaving only the fixed margin.
+    expect(upstreamHeadroom(16000,{messages:'x'.repeat(10000)},8192)).toBeLessThan(1024)
+    // ~50012 bytes is ~16671 tokens, so the fifth-of-window cap binds instead of
+    // the window arithmetic.
+    expect(upstreamHeadroom(64000,{tools:'x'.repeat(50000)},8192)).toBe(Math.floor(64000*.2))
   })
   it('registers tools only with Maintenance and rejects drafts, foreign and revoked references',async()=>{
     const f=await fixture(),registered:any[]=[]
