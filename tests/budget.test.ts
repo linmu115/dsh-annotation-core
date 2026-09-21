@@ -85,6 +85,32 @@ describe('reference context budget', () => {
     expect(result.estimatedTokens).toBe(2)
   })
 
+  it('prices a cross-session item in tokens rather than its raw byte length', () => {
+    const text = '相'.repeat(3000)
+    const empty = createPendingReferenceSet({ setId: 'set', profileId: 'web', sessionId: 'target', createdAt: 1 })
+    const set = addReference(empty, {
+      referenceId: 'cross-session',
+      userComment: '',
+      source: {
+        sourceType: 'dsh-message',
+        selectedText: text,
+        locator: {
+          profileId: 'web', sessionId: 'source', anchorId: 'answer', role: 'assistant', occurrence: 0,
+          selectedTextHash: selectedTextHash(text),
+          upstream: {
+            kind: 'fixed-upstream', referenceId: 'reference', sourceTitle: 'Source',
+            sourceVersionId: 'v1', cutoffEventId: 'completed-answer', targetSessionId: 'target',
+          },
+        },
+      },
+    }, 0).set
+    const bytes = new TextEncoder().encode(text).byteLength
+    const result = calculateReferenceBudget(set, { contextWindow: 1_000_000 })
+    // 3000 CJK characters: about 3000 tokens, but 9000 UTF-8 bytes. The floor must
+    // not reintroduce the byte count, which used to land near 9000.
+    expect(result.estimatedTokens).toBeGreaterThanOrEqual(3000)
+    expect(result.estimatedTokens).toBeLessThan(bytes)
+  })
   it('counts selected text, comments, and each deduplicated full document', () => {
     let set = dshSet('question', 'address this')
     set = addNote(set, { referenceId: 'note-1', selectedText: 'alpha', markdown: 'full note', comment: 'why' })

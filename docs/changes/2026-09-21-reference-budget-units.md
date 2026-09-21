@@ -1,6 +1,6 @@
-# 引用额度口径修复（0.3.12-rc2.24）
+# 引用额度口径修复（0.3.12-rc2.24 起，rc2.26 补齐第三处）
 
-本版修正两处同源的额度计算缺陷：把会话请求的 **JSON 字节数**直接当作 **token** 去减模型的 token 上下文窗口。
+本版修正三处同源的额度计算缺陷：把 **JSON 字节数**直接当作 **token** 使用。
 
 ## 症状
 
@@ -8,19 +8,21 @@
 
 ## 根因
 
-两条额度路径都在做量纲不一致的减法：
+三条额度路径都在做量纲不一致的运算：
 
 | 位置 | 原写法 | 后果 |
 |---|---|---|
 | `src/host/submission-budget.ts` | `window - requestBytes - reserve - 4096` | 提交引用时额度被算成 0 |
 | `src/host/upstream-budget.ts` | `contextWindow - inputBytes - outputReserve - 4096` | 展开读取上游时报「本轮可用上下文额度不足」 |
+| `src/domain/budget.ts` | `Math.max(estimate(text), byteLength(text) + 1024)` | 整组含跨会话引用时，材料按「字节 + 1024」计价，额度被算小 |
 
-`window`/`contextWindow` 的单位是 token，`requestBytes`/`inputBytes` 的单位是 UTF-8 字节。一个汉字约占 1 个 token、3 个字节，于是「会话占用」被高估约三倍。实测某中文会话：请求体 2,093,723 字节，而模型窗口为 1,000,000 token —— 字节数超过窗口，额度被 `Math.max(0, …)` 夹成 0。
+`window`/`contextWindow` 的单位是 token，`requestBytes`/`inputBytes` 的单位是 UTF-8 字节。一个汉字约占 1 个 token、3 个字节，于是占用被高估约三倍。实测某中文会话：请求体 2,093,723 字节，而模型窗口为 1,000,000 token —— 字节数超过窗口，额度被 `Math.max(0, …)` 夹成 0。
 
 ## 修复
 
 - 提交路径：优先读取宿主 `@deepseek-ai/dsh-token-meter` 的 surface 计量（与界面显示的同一口径），拿不到计量时退回估算。
 - 上游路径：把请求字节数按密度换算为 token 后再参与窗口减法。
+- 计数下界：跨会话条目仍保留一条下界（其 JSON 信封的字节数可能高于密度估算），但下界改为按 token 计价，不再直接使用字节数。
 - 新增 `estimateUtf8TokensFromBytes`（`src/domain/budget.ts`），供持有字节数而非文本的调用方复用同一密度。
 - Codex 原生路径不变：该路径本来就以 token 上报（`inputTokens`/`maxInputTokens`），不经过字节估算。
 

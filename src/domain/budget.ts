@@ -143,8 +143,13 @@ export function calculateReferenceBudget(
   const limit = Math.min(Math.floor(window * REFERENCE_BUDGET_RATIO), options.maxTokens ?? Infinity)
   const estimate = estimator(options)
   const hasUpstream = set.items.some(item => item.sourceType === 'dsh-message' && item.locator.upstream)
+  // Cross-session items carry a JSON envelope (locator, initialContext) whose
+  // structural bytes the plain density estimate can underprice, so they keep a
+  // floor. That floor must still be priced as tokens: the byte count used to be
+  // compared against a token limit, which overstated CJK material about threefold
+  // and shrank the allowance left for the reference.
   const count = hasUpstream
-    ? (text:string) => Math.max(estimate(text), new TextEncoder().encode(text).byteLength + 1024)
+    ? (text:string) => Math.max(estimate(text), estimateUtf8TokensFromBytes(new TextEncoder().encode(text).byteLength))
     : estimate
   const documents = collectReferenceDocuments(set)
   const documentOwner = new Map<string, string>()
