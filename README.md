@@ -1,5 +1,8 @@
 # Annotation Core
 
+> 当前运行环境：**DSH 0.1.5-rc.2 实例 / web profile**（0.1.5rc2）。其他 DSH 版本尚未验收。
+
+
 **0.3.12-rc2.28 · DSH 0.1.5-rc.2**
 
 Core 提供原生会话选文动作注册、统一引用气泡、注解、发送状态及上下文接入，并向扩展提供会话数据和引用端口。不依赖 DAG、Bridge、贴纸、Maintenance 或 Launcher。
@@ -57,3 +60,5 @@ dsh plugin --profile web add ./dsh-annotation-core-0.3.12-rc2.28.tgz
 
 **未修复。** 修法需要改客户端行为，或由宿主提供一个「允许空提交」的正式入口。
 
+
+源码开发：[独立克隆、锁定依赖与打包](docs/BUILD.md)。

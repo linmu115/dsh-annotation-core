@@ -1,5 +1,8 @@
 # 独立插件安装与使用（DSH 0.1.5-rc.2）
 
+> 当前运行环境：**DSH 0.1.5-rc.2 实例 / web profile**（0.1.5rc2）。其他 DSH 版本尚未验收。
+
+
 本批为 RC 预发布。基础使用不需要 Session Maintenance、Launcher、Codex 或 LLM 帮忙配置。Maintenance 的受管实例和同步流程不在本批发布范围。已经注册为受管实例的用户，不能只关引擎绕过管理约束；应先按 Maintenance 的正式解除注册流程处理，再使用独立模式。
 
 ## 下载与环境
@@ -13,10 +16,10 @@
 | 插件 | 本批版本 | 必要依赖 |
 |---|---|---|
 | [Annotation Core](https://github.com/linmu115/dsh-annotation-core/releases/tag/v0.3.12-rc2.28) | 0.3.12-rc2.28 | DSH 宿主 |
-| [ThoughtDAG](https://github.com/linmu115/thoughtdag/releases/tag/dsh-v0.4.14-rc2.26) | 0.4.14-rc2.26 | Core |
-| [DSH Obsidian Bridge](https://github.com/linmu115/dsh-obsidian-bridge/releases/tag/v0.4.1-rc2.9) | 0.4.1-rc2.9 | 本套引用功能需要 Core |
-| [普通贴纸](https://github.com/linmu115/dsh-session-sticker-board/releases/tag/v0.7.4-rc2.10) | 0.7.4-rc2.10 | Core + DSH Bridge；Better Sidebar 可选 |
-| [Obsidian Companion](https://github.com/linmu115/obsidian-deepharness-bridge/releases/tag/v0.7.0-rc2.7) | 0.7.0-rc2.7 | 对接本批 DSH Bridge |
+| [ThoughtDAG](https://github.com/linmu115/thoughtdag/releases/tag/dsh-v0.4.14-rc2.27) | 0.4.14-rc2.27 | Core |
+| [DSH Obsidian Bridge](https://github.com/linmu115/dsh-obsidian-bridge/releases/tag/v0.4.1-rc2.10) | 0.4.1-rc2.10 | 本套引用功能需要 Core |
+| [普通贴纸](https://github.com/linmu115/dsh-session-sticker-board/releases/tag/v0.7.4-rc2.11) | 0.7.4-rc2.11 | Core + DSH Bridge；Better Sidebar 可选 |
+| [Obsidian Companion](https://github.com/linmu115/obsidian-deepharness-bridge/releases/tag/v0.7.0-rc2.8) | 0.7.0-rc2.8 | 对接本批 DSH Bridge |
 
 附件是已经构建的运行包；使用方无需检出作者开发工作树或安装本地 contracts/protocol 源码。SHA256SUMS.txt 用于核对附件。可选 Obsidian CLI 不存在时，基础桥与引用仍可使用，CLI 操作不可用。
 
@@ -27,9 +30,9 @@
 ```powershell
 $env:DSH_HOME = 'C:\DSH\my-home'
 dsh plugin --profile web add ./dsh-annotation-core-0.3.12-rc2.28.tgz
-dsh plugin --profile web add ./dsh-thoughtdag-0.4.14-rc2.26.tgz
-dsh plugin --profile web add ./dsh-obsidian-bridge-0.4.1-rc2.9.tgz
-dsh plugin --profile web add ./dsh-session-sticker-board-0.7.4-rc2.10.tgz
+dsh plugin --profile web add ./dsh-thoughtdag-0.4.14-rc2.27.tgz
+dsh plugin --profile web add ./dsh-obsidian-bridge-0.4.1-rc2.10.tgz
+dsh plugin --profile web add ./dsh-session-sticker-board-0.7.4-rc2.11.tgz
 dsh --profile web --no-open
 ```
 
@@ -85,4 +88,4 @@ dsh plugin --profile web remove dsh-annotation-core
 
 ## 从源码开发
 
-运行包安装不需要下面这些开发依赖。当前部分源码仍使用本地 contracts/Core/Protocol SDK 路径，直接对单仓库执行 install 不代表已具备完整构建工作区。维护者应按 package.json 明示路径准备对应 SDK 和工具链；这属于源码构建限制，不是运行时必须安装 Maintenance 引擎。发布附件已去除开发路径，并对运行文件做本机路径和未打包依赖检查。
+独立克隆与锁定依赖构建步骤见 [BUILD.md](BUILD.md)。不需要作者的其他工作树。构建验证与真实运行验收分别记录。

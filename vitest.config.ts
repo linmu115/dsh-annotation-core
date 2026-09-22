@@ -1,18 +1,21 @@
 import { defineConfig } from 'vitest/config'
 import ts from 'typescript'
-import { resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { standardDecoratorPlugin, vitestExecArgv } from '../deepseek-harness/vitest.shared.ts'
 
-const host = fileURLToPath(new URL('../deepseek-harness/', import.meta.url))
-const paths = ts.readConfigFile(resolve(host, 'tsconfig.base.json'), ts.sys.readFile).config.compilerOptions.paths as Record<string, string[]>
-// The sibling host's default include does not cover this plugin. Explicit exact
-// aliases resolve both trees to one source module graph in unit tests.
-const alias = Object.entries(paths).filter(([name]) => !name.includes('*')).map(([name, targets]) => ({
-  find: new RegExp('^' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'), replacement: resolve(host, targets[0]!),
-}))
+// Tests consume the pinned public DSH packages, never a sibling host checkout.
 export default defineConfig({
-  resolve: { alias },
-  plugins: [standardDecoratorPlugin()],
-  test: { include: ['tests/**/*.test.{ts,tsx}'], execArgv: vitestExecArgv, testTimeout: 10000 },
+  plugins: [{
+    name: 'standard-decorators', enforce: 'pre',
+    transform(code, id) {
+      const file = id.split('?')[0]!
+      if (!/\.[cm]?tsx?$/.test(file) || !/^\s*@[A-Za-z_$]/m.test(code)) return
+      const result = ts.transpileModule(code, { fileName: file, compilerOptions: {
+        target: ts.ScriptTarget.ES2024, module: ts.ModuleKind.ESNext,
+        jsx: ts.JsxEmit.ReactJSX, sourceMap: true,
+      } })
+      return { code: result.outputText.replace(/\n?\/\/# sourceMappingURL=.*$/u, '\n'), map: result.sourceMapText }
+    },
+  }],
+  test: { include: ['tests/**/*.test.{ts,tsx}'], exclude: ['tests/native-context-loop.test.ts'], testTimeout: 10000,
+    execArgv: process.allowedNodeEnvironmentFlags.has('--webstorage') ? ['--no-webstorage'] : [],
+  },
 })

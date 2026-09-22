@@ -118,7 +118,9 @@
     "test": "vitest run --pool=threads --maxWorkers=1",
     "vitest": "vitest --pool=threads --maxWorkers=1",
     "check": "pnpm typecheck && pnpm test && pnpm pack --dry-run --json",
-    "build:official": "node scripts/build-official.mjs"
+    "build:official": "node scripts/build-official.mjs",
+    "test:host": "vitest run --config vitest.host.config.ts --pool=threads --maxWorkers=1",
+    "package:release": "node scripts/package-release.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
@@ -180,7 +182,8 @@
     "tsdown": "^0.22.2",
     "typescript": "^5.9.0",
     "unrun": "^0.3.1",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "tar": "7.5.22"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
