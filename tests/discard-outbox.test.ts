@@ -43,6 +43,35 @@ async function storeWithPending() {
 }
 
 describe('pending reference discard outbox', () => {
+  it('waits for in-flight discard and does not reschedule a failure after dispose', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = await storeWithPending()
+      await store.removeReference('session', { expectedRevision: 1, referenceId: 'reference-1', now: 2 })
+      const registry = new HostSourceRegistry(new Context())
+      const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>()
+      const discardPending = vi.fn(async () => {
+        entered.resolve(); await release.promise; throw new Error('offline during unload')
+      })
+      registry.registerSourceAdapter('obsidian-note', { prepare: async item => item, discardPending })
+      const outbox = new PendingDiscardOutbox(store, registry, { retryDelayMs: 10 })
+      const running = outbox.runPending('session')
+      await entered.promise
+      let drained = false
+      const stopping = outbox.dispose().then(() => { drained = true })
+      await Promise.resolve()
+      expect(drained).toBe(false)
+      release.resolve()
+      await Promise.all([running, stopping])
+      expect(store.listPendingDiscardJobs('session')[0]).toMatchObject({ attempts: 1, lastError: 'offline during unload' })
+      store.close()
+      outbox.start(); outbox.kickAll(); outbox.kick('session')
+      await outbox.runPending('session')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(discardPending).toHaveBeenCalledOnce()
+    } finally { vi.useRealTimers() }
+  })
+
   it('loads existing v1 aggregate rows with an empty discard queue', () => {
     const parsed = SessionAggregateSchema.parse({
       schemaVersion: 1,

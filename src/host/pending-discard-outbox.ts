@@ -1,3 +1,4 @@
+import { BackgroundTasks, settleAll } from './background-tasks.ts'
 import type { HostSourceRegistry } from './source-registry.ts'
 import type { AnnotationStore, PendingDiscardJob } from './store.ts'
 import { AggregateRevisionConflictError } from './store.ts'
@@ -12,6 +13,7 @@ export interface PendingDiscardOutboxOptions {
 }
 
 export class PendingDiscardOutbox {
+  private readonly tasks = new BackgroundTasks()
   private readonly active = new Map<string, Promise<void>>()
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly now: () => number
@@ -28,10 +30,12 @@ export class PendingDiscardOutbox {
   }
 
   start(): void {
+    if (this.disposed) return
     for (const sessionId of this.store.sessionIds()) this.kick(sessionId)
   }
 
   kickAll(): void {
+    if (this.disposed) return
     for (const sessionId of this.store.sessionIds()) this.kick(sessionId)
   }
 
@@ -43,16 +47,17 @@ export class PendingDiscardOutbox {
 
   async runPending(sessionId: string): Promise<void> {
     if (this.disposed) return
-    const jobs = this.store.listPendingDiscardJobs(sessionId)
-    await Promise.all(jobs.map((job) => this.runOne(sessionId, job)))
-    this.scheduleRetry(sessionId)
+    return this.tasks.run(async () => {
+      await settleAll(this.store.listPendingDiscardJobs(sessionId).map((job) => this.runOne(sessionId, job)))
+      this.scheduleRetry(sessionId)
+    })
   }
 
-  dispose(): void {
-    if (this.disposed) return
+  dispose(): Promise<void> {
     this.disposed = true
     for (const timer of this.timers.values()) clearTimeout(timer)
     this.timers.clear()
+    return this.tasks.dispose()
   }
 
   private runOne(sessionId: string, job: PendingDiscardJob): Promise<void> {

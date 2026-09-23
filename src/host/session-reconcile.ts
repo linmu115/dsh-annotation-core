@@ -1,3 +1,4 @@
+import { BackgroundTasks } from './background-tasks.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { acceptanceRegistry, InputAcceptanceRegistry } from './input-acceptance.ts'
@@ -227,6 +228,9 @@ export class SessionSettlementTracker {
 
 /** Restart/HMR adoption of admissions whose Remote response or flush was interrupted. */
 export class StartupSubmissionReconciler {
+  private readonly tasks = new BackgroundTasks()
+  private unregister: (() => void) | undefined
+
   constructor(
     readonly ctx: Context,
     readonly store: AnnotationStore,
@@ -235,13 +239,26 @@ export class StartupSubmissionReconciler {
   ) {}
 
   start(): void {
-    for (const agent of this.ctx.agents.list()) void this.reconcile(agent)
-    this.ctx.on('agent/created', ({ agent }) => { void this.reconcile(agent) })
+    if (this.tasks.closed || this.unregister) return
+    this.unregister = this.ctx.on('agent/created', ({ agent }) => { void this.reconcile(agent).catch(() => undefined) })
+    for (const agent of this.ctx.agents.list()) void this.reconcile(agent).catch(() => undefined)
   }
 
-  async reconcile(agent: Agent): Promise<void> {
+  dispose(): Promise<void> {
+    this.unregister?.()
+    this.unregister = undefined
+    return this.tasks.dispose()
+  }
+
+  reconcile(agent: Agent): Promise<void> {
+    if (this.tasks.closed) return Promise.resolve()
+    return this.tasks.run(() => this.reconcileOpen(agent))
+  }
+
+  private async reconcileOpen(agent: Agent): Promise<void> {
     const admissions = Object.values(this.store.read(agent.id).admissions)
     for (const admission of admissions) {
+      if (this.tasks.closed) break
       try {
         await this.reconcileAdmission(agent, admission)
       } catch (error) {

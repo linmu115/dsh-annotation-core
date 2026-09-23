@@ -10,8 +10,9 @@ import { Storage } from '@deepseek-ai/dsh-storage'
 import { apply as applyStorageDomain } from '@deepseek-ai/dsh-storage-domain'
 import { apply as applyStorageJson } from '@deepseek-ai/dsh-storage-json'
 import { TypertRegistry } from '@deepseek-ai/dsh-typert-registry'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
+import { HostSourceRegistry } from '../src/host/source-registry.ts'
 import { AnnotationStore } from '../src/host/store.ts'
 import { selectedTextHash } from '../src/protocol/index.ts'
 import { apply as applyCore } from '../src/index.ts'
@@ -213,6 +214,89 @@ describe('annotation core Typert boundary', () => {
     expect(clientCtx.get('remote.annotationCore')).toBeUndefined()
   })
 
+  it.each(['annotation', 'extensions'])('closes a late %s domain when unloading during async startup', async phase => {
+    const root = await mkdtemp(join(tmpdir(), 'annotation-startup-stop-'))
+    const ctx = new Context()
+    new Storage(ctx)
+    applyStorageJson(ctx, { root })
+    await applyStorageDomain(ctx, { backend: 'json' })
+    if (phase === 'extensions') {
+      // Only used for the complete-runtime presence check; startup must stop before methods run.
+      for (const key of ['agents', 'sessions', 'systemPrompt', 'attachments']) ctx.provide(key as never, {} as never)
+    }
+    const release = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>()
+    const open = ctx.storageDomain.open.bind(ctx.storageDomain)
+    let count = 0
+    const delayed = vi.spyOn(ctx.storageDomain, 'open').mockImplementation((async (...args: Parameters<typeof open>) => {
+      const domain = await open(...args)
+      count += 1
+      if (count === (phase === 'annotation' ? 1 : 2)) { entered.resolve(); await release.promise }
+      return domain
+    }) as typeof open)
+    const fiber = ctx.plugin({ name: `annotation-startup-stop-${phase}`, inject: ['storageDomain'],
+      async apply(child) { await applyCore(child, { profileId: 'web' }) } })
+    try {
+      await entered.promise
+      let disposed = false
+      const stopping = fiber.dispose().then(() => { disposed = true })
+      await Promise.resolve(); await Promise.resolve()
+      expect(disposed).toBe(false)
+      release.resolve()
+      await stopping
+      expect(ctx.storageDomain.get('dsh_annotation_core_v1') === undefined, 'Annotation domain closed').toBe(true)
+      expect(ctx.storageDomain.get('dsh_session_extensions_v1') === undefined, 'Extension domain closed').toBe(true)
+      expect(ctx.get('annotationCore') === undefined, 'Core service removed').toBe(true)
+      expect(ctx.get('sessionExtensionData' as never) === undefined, 'Extension service removed').toBe(true)
+    } finally {
+      release.resolve()
+      await fiber.dispose()
+      delayed.mockRestore()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps the actual Cordis storage domain open until pending source cleanup has drained', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'annotation-drain-'))
+    const ctx = new Context()
+    new Storage(ctx)
+    applyStorageJson(ctx, { root })
+    await applyStorageDomain(ctx, { backend: 'json' })
+    const fiber = ctx.plugin({ name: 'annotation-core-drain-test', inject: ['storageDomain'],
+      async apply(child) { await applyCore(child, { profileId: 'web' }) } })
+    const release = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>()
+    try {
+      await fiber
+      const remote = ctx.get('annotationCore') as unknown as AnnotationCoreRemoteService
+      const sources = ctx.get('annotationCoreHost') as HostSourceRegistry
+      await remote.store.addReference('session', { expectedRevision: 0, operationId: 'capture', setId: 'set', referenceId: 'ref', createdAt: 1,
+        source: { sourceType: 'obsidian-note', selectedText: 'sample', locator: {
+          vaultId: 'vault', notePath: 'sample.md', blockId: 'block', occurrence: 0, selectedTextHash: selectedTextHash('sample') },
+          snapshot: { markdown: 'sample', documentHash: selectedTextHash('sample'), capturedAt: 1, freshness: 'captured' } } })
+      await remote.store.removeReference('session', { expectedRevision: 1, referenceId: 'ref', now: 2 })
+      sources.registerSourceAdapter('obsidian-note', { prepare: async item => item,
+        discardPending: async () => { entered.resolve(); await release.promise } })
+      await entered.promise
+      let disposed = false
+      const disposing = fiber.dispose().then(() => { disposed = true })
+      await Promise.resolve(); await Promise.resolve()
+      expect(disposed).toBe(false)
+      expect(ctx.storageDomain.get('dsh_annotation_core_v1')).toBeDefined()
+      release.resolve()
+      await disposing
+      expect(ctx.storageDomain.get('dsh_annotation_core_v1') === undefined, 'Annotation domain closed').toBe(true)
+      // Reopen from persisted JSON: the acknowledgement was written before closing.
+      const next = ctx.plugin({ name: 'annotation-core-drain-reopen', inject: ['storageDomain'],
+        async apply(child) { await applyCore(child, { profileId: 'web' }) } })
+      await next
+      try { expect((ctx.get('annotationCore') as unknown as AnnotationCoreRemoteService).store.listPendingDiscardJobs('session')).toEqual([]) }
+      finally { await next.dispose() }
+    } finally {
+      release.resolve()
+      await fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('closes the durable Domain and aborts long polls when the owning Cordis fiber disposes', async () => {
     const root = await mkdtemp(join(tmpdir(), 'annotation-lifecycle-'))
     const ctx = new Context()
@@ -230,12 +314,12 @@ describe('annotation core Typert boundary', () => {
     try {
       await fiber
       expect(ctx.storageDomain.get('dsh_annotation_core_v1')).toBeDefined()
-      remoteService = ctx.get('annotationCore') as AnnotationCoreRemoteService | undefined
+      remoteService = ctx.get('annotationCore') as unknown as AnnotationCoreRemoteService | undefined
       if (remoteService === undefined) throw new Error('Remote service did not mount')
       const waiting = remoteService.store.waitRevision('session', 0)
       await fiber.dispose()
       await expect(waiting).rejects.toThrow(/disposed/)
-      expect(ctx.storageDomain.get('dsh_annotation_core_v1')).toBeUndefined()
+      expect(ctx.storageDomain.get('dsh_annotation_core_v1') === undefined, 'Annotation domain closed').toBe(true)
     } finally {
       await fiber.dispose()
       await rm(root, { recursive: true, force: true })

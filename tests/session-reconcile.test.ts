@@ -104,6 +104,34 @@ describe('session durability settlement', () => {
     await expect(first.promise).resolves.toMatchObject({ userObserved: true })
   })
 
+  it('drains startup reconciliation blocked on flush and admits no work after disposal', async () => {
+    const { ctx, session, agent, accept } = fixture(false)
+    const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
+    const user = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'recover me' }] })
+    const digest = `sha256:${'a'.repeat(64)}`
+    await store.beginPlainAdmission(session.id, { expectedRevision: 0, clientSubmissionId: 'submission', requestDigest: digest, createdAt: 1 })
+    await store.recordEnqueuedSubmission(session.id, { expectedRevision: 1, clientSubmissionId: 'submission', requestDigest: digest,
+      userMessageId: user.id, createdAt: 2 })
+    session.append('user/message', user, { surfaceOp: 'append' })
+    accept([user.id])
+    const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>()
+    ctx.on('session/flush', async () => { entered.resolve(); await release.promise })
+    const outbox = new BacklinkOutbox(store, ctx.get('annotationCoreHost') as HostSourceRegistry)
+    const reconciler = new StartupSubmissionReconciler(ctx, store, outbox)
+    const running = reconciler.reconcile(agent)
+    await entered.promise
+    let drained = false
+    const stopping = reconciler.dispose().then(() => { drained = true })
+    await Promise.resolve()
+    expect(drained).toBe(false)
+    release.resolve()
+    await Promise.all([running, stopping])
+    await outbox.dispose()
+    expect(store.readAdmission(session.id, 'submission')?.state).toBe('durable')
+    store.close()
+    await reconciler.reconcile(agent)
+  })
+
   it('retains reconstructed context as unconfirmed until an exact saved receipt arrives', async () => {
     const { ctx, session, agent, accept } = fixture()
     const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })

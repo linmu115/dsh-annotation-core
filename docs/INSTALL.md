@@ -7,7 +7,7 @@
 
 ## 下载与环境
 
-2026-09-22：下表是当前公开代码与发行入口，不代表全部版本组合已经完成真实业务验收。Sidechat 不在本组合依赖中。
+2026-09-23：下表是当前公开代码与发行入口，不代表全部版本组合已经完成真实业务验收。Sidechat 不在本组合依赖中。
 
 使用 Node.js 24、已经可正常启动的 DSH 0.1.5-rc.2 / web profile，以及桌面版 Obsidian（仅笔记连接需要；建议 1.13.7 及以上，这是本机当前基线；Companion 清单最低版本为 1.13.0）。先完成 DSH 自身的模型配置并确认普通聊天可用。
 
@@ -15,11 +15,11 @@
 
 | 插件 | 本批版本 | 必要依赖 |
 |---|---|---|
-| [Annotation Core](https://github.com/linmu115/dsh-annotation-core/releases/tag/v0.3.12-rc2.28) | 0.3.12-rc2.28 | DSH 宿主 |
-| [ThoughtDAG](https://github.com/linmu115/thoughtdag/releases/tag/dsh-v0.4.14-rc2.27) | 0.4.14-rc2.27 | Core |
-| [DSH Obsidian Bridge](https://github.com/linmu115/dsh-obsidian-bridge/releases/tag/v0.4.1-rc2.10) | 0.4.1-rc2.10 | 本套引用功能需要 Core |
-| [普通贴纸](https://github.com/linmu115/dsh-session-sticker-board/releases/tag/v0.7.4-rc2.11) | 0.7.4-rc2.11 | Core + DSH Bridge；Better Sidebar 可选 |
-| [Obsidian Companion](https://github.com/linmu115/obsidian-deepharness-bridge/releases/tag/v0.7.0-rc2.8) | 0.7.0-rc2.8 | 对接本批 DSH Bridge |
+| [Annotation Core](https://github.com/linmu115/dsh-annotation-core/releases/tag/v0.3.12-rc2.29) | 0.3.12-rc2.29 | DSH 宿主 |
+| [ThoughtDAG](https://github.com/linmu115/thoughtdag/releases/tag/dsh-v0.4.14-rc2.28) | 0.4.14-rc2.28 | Core |
+| [DSH Obsidian Bridge](https://github.com/linmu115/dsh-obsidian-bridge/releases/tag/v0.4.1-rc2.11) | 0.4.1-rc2.11 | 本套引用功能需要 Core |
+| [普通贴纸](https://github.com/linmu115/dsh-session-sticker-board/releases/tag/v0.7.4-rc2.12) | 0.7.4-rc2.12 | Core + DSH Bridge；Better Sidebar 可选 |
+| [Obsidian Companion](https://github.com/linmu115/obsidian-deepharness-bridge/releases/tag/v0.7.0-rc2.9) | 0.7.0-rc2.9 | 对接本批 DSH Bridge |
 
 附件是已经构建的运行包；使用方无需检出作者开发工作树或安装本地 contracts/protocol 源码。SHA256SUMS.txt 用于核对附件。可选 Obsidian CLI 不存在时，基础桥与引用仍可使用，CLI 操作不可用。
 
@@ -29,10 +29,10 @@
 
 ```powershell
 $env:DSH_HOME = 'C:\DSH\my-home'
-dsh plugin --profile web add ./dsh-annotation-core-0.3.12-rc2.28.tgz
-dsh plugin --profile web add ./dsh-thoughtdag-0.4.14-rc2.27.tgz
-dsh plugin --profile web add ./dsh-obsidian-bridge-0.4.1-rc2.10.tgz
-dsh plugin --profile web add ./dsh-session-sticker-board-0.7.4-rc2.11.tgz
+dsh plugin --profile web add ./dsh-annotation-core-0.3.12-rc2.29.tgz
+dsh plugin --profile web add ./dsh-thoughtdag-0.4.14-rc2.28.tgz
+dsh plugin --profile web add ./dsh-obsidian-bridge-0.4.1-rc2.11.tgz
+dsh plugin --profile web add ./dsh-session-sticker-board-0.7.4-rc2.12.tgz
 dsh --profile web --no-open
 ```
 

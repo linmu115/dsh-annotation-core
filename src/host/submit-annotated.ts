@@ -1,3 +1,4 @@
+import { BackgroundTasks } from './background-tasks.ts'
 import { SubmittedMessageSchema } from './submitted-message.ts'
 import type { SubmissionAttachment } from '../protocol/submission-attachments.ts'
 import type { PromptFileBinding } from '@deepseek-ai/dsh-client-file-upload'
@@ -100,6 +101,8 @@ function prepareFailure(result: Exclude<PrepareResult, { kind: 'ready' }>): Subm
 
 /** Host-owned idempotent transaction; Remote and embedded clients share this one path. */
 export class AnnotationSubmissionCoordinator {
+  private readonly tasks = new BackgroundTasks()
+  private readonly stopping = new AbortController()
   private readonly tails = new Map<string, Promise<void>>()
 
   constructor(
@@ -112,11 +115,18 @@ export class AnnotationSubmissionCoordinator {
   ) {}
 
   submitAnnotated(agent: Agent, input: SubmitAnnotatedInput, signal?: AbortSignal): Promise<SubmissionResult> {
-    return this.exclusive(agent.id, () => this.submitAnnotatedExclusive(agent, input, signal)).then(dispatch => 'result' in dispatch ? dispatch.result : dispatch)
+    const lifetimeSignal = signal ? AbortSignal.any([signal, this.stopping.signal]) : this.stopping.signal
+    return this.tasks.run(() => this.exclusive(agent.id, () => this.submitAnnotatedExclusive(agent, input, lifetimeSignal)).then(dispatch => 'result' in dispatch ? dispatch.result : dispatch))
   }
 
   submitPlain(agent: Agent, input: SubmitPlainInput, signal?: AbortSignal): Promise<SubmissionResult> {
-    return this.exclusive(agent.id, () => this.submitPlainExclusive(agent, input, signal)).then(dispatch => 'result' in dispatch ? dispatch.result : dispatch)
+    const lifetimeSignal = signal ? AbortSignal.any([signal, this.stopping.signal]) : this.stopping.signal
+    return this.tasks.run(() => this.exclusive(agent.id, () => this.submitPlainExclusive(agent, input, lifetimeSignal)).then(dispatch => 'result' in dispatch ? dispatch.result : dispatch))
+  }
+
+  dispose(): Promise<void> {
+    this.stopping.abort()
+    return this.tasks.dispose()
   }
 
   private async submitAnnotatedExclusive(
@@ -124,6 +134,7 @@ export class AnnotationSubmissionCoordinator {
     input: SubmitAnnotatedInput,
     signal?: AbortSignal,
   ): Promise<AdmissionDispatch> {
+    signal?.throwIfAborted()
     this.validateRequest(input)
     const known = this.store.readAdmission(agent.id, input.clientSubmissionId)
     if (known !== undefined) {
@@ -232,6 +243,7 @@ export class AnnotationSubmissionCoordinator {
     input: SubmitPlainInput,
     signal?: AbortSignal,
   ): Promise<AdmissionDispatch> {
+    signal?.throwIfAborted()
     this.validateRequest(input)
     const known = this.store.readAdmission(agent.id, input.clientSubmissionId)
     if (known !== undefined) {

@@ -1,3 +1,4 @@
+import { BackgroundTasks, settleAll } from './background-tasks.ts'
 import type { HostSourceRegistry } from './source-registry.ts'
 import type { AnnotationStore, CommittedDeleteJob } from './store.ts'
 import { AggregateRevisionConflictError } from './store.ts'
@@ -13,6 +14,7 @@ export interface CommittedDeleteOutboxOptions {
 
 /** Delivers committed-reference cleanup after Core has durably removed the relation. */
 export class CommittedDeleteOutbox {
+  private readonly tasks = new BackgroundTasks()
   private readonly active = new Map<string, Promise<void>>()
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly now: () => number
@@ -29,10 +31,12 @@ export class CommittedDeleteOutbox {
   }
 
   start(): void {
+    if (this.disposed) return
     for (const sessionId of this.store.sessionIds()) this.kick(sessionId)
   }
 
   kickAll(): void {
+    if (this.disposed) return
     for (const sessionId of this.store.sessionIds()) this.kick(sessionId)
   }
 
@@ -44,15 +48,17 @@ export class CommittedDeleteOutbox {
 
   async runPending(sessionId: string): Promise<void> {
     if (this.disposed) return
-    await Promise.all(this.store.listCommittedDeleteJobs(sessionId).map((job) => this.runOne(sessionId, job)))
-    this.scheduleRetry(sessionId)
+    return this.tasks.run(async () => {
+      await settleAll(this.store.listCommittedDeleteJobs(sessionId).map((job) => this.runOne(sessionId, job)))
+      this.scheduleRetry(sessionId)
+    })
   }
 
-  dispose(): void {
-    if (this.disposed) return
+  dispose(): Promise<void> {
     this.disposed = true
     for (const timer of this.timers.values()) clearTimeout(timer)
     this.timers.clear()
+    return this.tasks.dispose()
   }
 
   private runOne(sessionId: string, job: CommittedDeleteJob): Promise<void> {

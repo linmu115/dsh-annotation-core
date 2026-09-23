@@ -1,3 +1,4 @@
+import { BackgroundTasks, settleAll } from './background-tasks.ts'
 import type { AnnotationStore, BacklinkJob } from './store.ts'
 import { AggregateRevisionConflictError } from './store.ts'
 import type { HostSourceRegistry } from './source-registry.ts'
@@ -8,6 +9,7 @@ function errorText(error: unknown): string {
 }
 
 export class BacklinkOutbox {
+  private readonly tasks = new BackgroundTasks()
   private readonly active = new Map<string, Promise<void>>()
 
   constructor(
@@ -18,15 +20,24 @@ export class BacklinkOutbox {
   ) {}
 
   kick(sessionId: string): void {
-    void this.runPending(sessionId)
+    void this.runPending(sessionId).catch(() => undefined)
   }
 
   async runPending(sessionId: string): Promise<void> {
-    const pending = this.store.listBacklinkJobs(sessionId).filter((job) => job.state === 'pending')
-    await Promise.all(pending.map((job) => this.runOne(sessionId, job)))
+    if (this.tasks.closed) return
+    return this.tasks.run(async () => {
+      const pending = this.store.listBacklinkJobs(sessionId).filter((job) => job.state === 'pending')
+      await settleAll(pending.map((job) => this.runOne(sessionId, job)))
+    })
   }
 
-  async retry(sessionId: string, setId: string, referenceId: string): Promise<BacklinkJob> {
+  dispose(): Promise<void> { return this.tasks.dispose() }
+
+  retry(sessionId: string, setId: string, referenceId: string): Promise<BacklinkJob> {
+    return this.tasks.run(() => this.retryOpen(sessionId, setId, referenceId))
+  }
+
+  private async retryOpen(sessionId: string, setId: string, referenceId: string): Promise<BacklinkJob> {
     for (;;) {
       const aggregate = this.store.read(sessionId)
       try {

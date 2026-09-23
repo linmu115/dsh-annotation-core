@@ -1,3 +1,9 @@
+## 0.3.12-rc2.29 — 2026-09-23
+
+- Drain admitted reference cleanup, backlink, submission and startup recovery work before closing storage domains.
+- Close domains that finish opening after unload and preserve durable receipts across restart.
+- Keep Core independent of Bridge and Maintenance; runtime environment DSH 0.1.5-rc.2 / web.
+
 # Changelog
 
 ## 0.3.12-rc2.1 — 2026-09-13

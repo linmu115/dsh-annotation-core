@@ -38,6 +38,31 @@ async function sentStore() {
 }
 
 describe('durable backlink outbox', () => {
+  it('drains a late backlink receipt before storage closes and refuses new retry work', async () => {
+    const store = await sentStore()
+    const registry = new HostSourceRegistry(new Context())
+    const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>()
+    const writer = vi.fn(async () => {
+      entered.resolve(); await release.promise
+      return { referenceId: 'reference', commitDigest: digest, notePath: 'note.md', blockId: 'block', revision: '1', writtenAt: 5 }
+    })
+    registry.registerSourceAdapter('obsidian-note', { prepare: async item => item, commitBacklink: writer })
+    const outbox = new BacklinkOutbox(store, registry)
+    const operation = outbox.runPending('session')
+    await entered.promise
+    let drained = false
+    const stopping = outbox.dispose().then(() => { drained = true })
+    await outbox.runPending('session')
+    await expect(outbox.retry('session', 'set', 'reference')).rejects.toThrow(/stopping/)
+    expect(drained).toBe(false)
+    release.resolve()
+    await Promise.all([stopping, operation, outbox.dispose()])
+    expect(store.listBacklinkJobs('session')[0]?.state).toBe('written')
+    store.close()
+    await outbox.runPending('session')
+    expect(writer).toHaveBeenCalledOnce()
+  })
+
   it('queues cleanup for a late write and prevents an earlier delete receipt from removing it', async () => {
     const store = await sentStore()
     const registry = new HostSourceRegistry(new Context())

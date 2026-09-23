@@ -1745,6 +1745,10 @@ export class AnnotationStore {
     })
   }
 
+  async drain(): Promise<void> {
+    await Promise.all([...this.tails.values()])
+  }
+
   close(): void {
     if (this.disposed) return
     this.disposed = true
@@ -1851,6 +1855,7 @@ export async function openAnnotationStore(ctx: Context, profileId: string): Prom
     async close() {
       if (closed) return
       closed = true
+      await store.drain()
       store.close()
       await domain.close()
     },

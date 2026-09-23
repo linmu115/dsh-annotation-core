@@ -61,6 +61,31 @@ async function commit(store: AnnotationStore, references: Array<{ id: string; so
 }
 
 describe('committed bidirectional reference deletion', () => {
+  it('drains an in-flight deletion receipt before reporting disposal complete', async () => {
+    const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
+    await commit(store, [{ id: 'reference-1', source: obsidianSource() }])
+    await store.deleteReferenceLink('session', { expectedRevision: store.read('session').revision,
+      setId: 'set-1', referenceId: 'reference-1', deletedAt: 20 })
+    const sources = new HostSourceRegistry(new Context())
+    const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>()
+    const writer = vi.fn(async () => { entered.resolve(); await release.promise })
+    sources.registerSourceAdapter('obsidian-note', { prepare: async item => item, deleteCommitted: writer })
+    const outbox = new CommittedDeleteOutbox(store, sources)
+    const running = outbox.runPending('session')
+    await entered.promise
+    let drained = false
+    const stopping = outbox.dispose().then(() => { drained = true })
+    await Promise.resolve()
+    expect(drained).toBe(false)
+    release.resolve()
+    await Promise.all([running, stopping])
+    expect(store.listCommittedDeleteJobs('session')).toEqual([])
+    store.close()
+    outbox.start(); outbox.kickAll(); outbox.kick('session')
+    await outbox.runPending('session')
+    expect(writer).toHaveBeenCalledOnce()
+  })
+
   it('keeps surviving sent numbers stable and makes repeated deletion idempotent', async () => {
     const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
     await commit(store, [

@@ -104,12 +104,28 @@ export class LocalSessionExtensionData implements SessionExtensionData {
   async drain() { await Promise.all([this.syncTail, ...this.tails.values()]) }
 }
 
-export async function openSessionExtensionData(ctx: Context) {
+export class SessionExtensionStartupStoppedError extends Error {
+  constructor() { super('Annotation runtime stopped during storage startup') }
+}
+
+export async function openSessionExtensionData(ctx: Context, beforeClose?: () => Promise<void>, isClosing?: () => boolean) {
   observeSessionWriteAccess(ctx)
   const domain = await ctx.storageDomain.open(sessionExtensionsDomain)
+  if (isClosing?.()) {
+    await domain.close()
+    throw new SessionExtensionStartupStoppedError()
+  }
   const data = new LocalSessionExtensionData(domain.table('objects'), () => assertSessionWritable(ctx),
     () => ctx.get('sessionExtensionSync' as never) as SessionExtensionSync | undefined)
-  ctx.provide('sessionExtensionData' as never, data as never)
-  ctx.effect(() => async () => { await data.drain(); await domain.close() }, 'session extensions: host storage')
-  return data
+  try {
+    ctx.provide('sessionExtensionData' as never, data as never)
+    ctx.effect(() => async () => {
+      try { await beforeClose?.() }
+      finally { try { await data.drain() } finally { await domain.close() } }
+    }, 'session extensions: host storage')
+    return data
+  } catch (error) {
+    await domain.close()
+    throw error
+  }
 }

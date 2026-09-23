@@ -174,6 +174,22 @@ function annotatedRequest(store: AnnotationStore, sessionId: string, overrides: 
 }
 
 describe('Host annotated submission transaction', () => {
+  it('cancels settlement and drains its reconciliation write before closing storage', async () => {
+    const f = fixture({ flush: 'defer' })
+    await addReference(f.store, f.session.id)
+    const request = annotatedRequest(f.store, f.session.id)
+    const submitting = f.coordinator.submitAnnotated(f.agent, request)
+    await vi.waitFor(() => expect(f.sends).toHaveLength(1))
+    await f.coordinator.dispose()
+    expect(await submitting).toMatchObject({ kind: 'error', code: 'unresolved' })
+    expect(f.store.readAdmission(f.session.id, 'submission')?.state).toBe('enqueued')
+    expect(Object.values(f.store.read(f.session.id).flushReconciliations)[0]?.flushState).toBe('failed')
+    f.store.close()
+    f.flushGate.resolve()
+    await f.agent.whenIdle()
+    await expect(f.coordinator.submitAnnotated(f.agent, request)).rejects.toThrow(/stopping/)
+  })
+
   it('durably sends references without inventing user text and clears pending references', async () => {
     const f = fixture()
     await addReference(f.store, f.session.id)
@@ -291,7 +307,7 @@ describe('Host annotated submission transaction', () => {
     vi.spyOn(f.ctx, 'get').mockImplementation(((name: string) => name === 'agentDefaultModel' ? {currentSelection:()=>({provider:'native',model:'large'})} : name === 'llm' ? {resolveModelInfo} : get(name as never)) as typeof f.ctx.get)
     await addReference(f.store, f.session.id, '字'.repeat(14000))
     const result = await f.coordinator.submitAnnotated(f.agent, annotatedRequest(f.store, f.session.id))
-    expect(resolveModelInfo).toHaveBeenCalledWith('native','large',undefined)
+    expect(resolveModelInfo).toHaveBeenCalledWith('native','large',expect.any(AbortSignal))
     expect(result.kind).toBe('success')
   })
   // The reference allowance is the smaller of 20% of the window and whatever the
