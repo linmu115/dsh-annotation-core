@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { SelectionActions } from '../src/client/selection-actions.ts'
-import { SelectionToolbar } from '../src/client/selection-toolbar.tsx'
+import { applyNativeSelection, SelectionToolbar } from '../src/client/selection-toolbar.tsx'
 
 it('owns within-session references without a sidebar, and removes contributed actions when their owner unloads', async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -41,4 +41,33 @@ it('rejects duplicate owners and an old disposer cannot remove a later registrat
   first()
   expect(actions.getSnapshot()).toEqual([second])
   remove(); expect(actions.getSnapshot()).toEqual([])
+})
+
+
+it('captures the official 0.2 message DOM under its retained main view and clears on session switch', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const originalRect = Range.prototype.getBoundingClientRect
+  Range.prototype.getBoundingClientRect = () => ({ left: 1, top: 2, width: 30, height: 20 } as DOMRect)
+  const listeners = new Set<() => void>(), actions = new SelectionActions()
+  let owner = 'iframe-main', dispose = () => {}
+  const core = { selectionActions: actions }
+  const ctx = { sessions: { list: { getSnapshot: () => ({ byId: { background: { retainedBy: { plugin: 1 } }, [owner]: { retainedBy: { mainView: 1 } } } }), subscribe: (fn: () => void) => { listeners.add(fn); return () => listeners.delete(fn) } } }, effect: (fn: () => () => void) => { dispose = fn() } }
+  const message = document.createElement('div')
+  message.dataset.chatAnchorKey = '13:input-messagemessage-id'
+  message.dataset.chatFlowKind = 'user'
+  message.textContent = 'Native selected message'
+  document.body.append(message)
+  try {
+    await act(async () => applyNativeSelection(ctx as never, core as never))
+    const range = document.createRange(); range.selectNodeContents(message)
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range)
+    await act(async () => document.dispatchEvent(new MouseEvent('mouseup')))
+    expect(document.querySelector('[aria-label="选文操作"]')).not.toBeNull()
+    await act(async () => { owner = 'other'; for (const fn of listeners) fn() })
+    expect(document.querySelector('[aria-label="选文操作"]')).toBeNull()
+  } finally {
+    await act(async () => { dispose(); await new Promise(resolve => setTimeout(resolve, 1)) })
+    window.getSelection()!.removeAllRanges(); message.remove(); Range.prototype.getBoundingClientRect = originalRect; vi.restoreAllMocks(); vi.unstubAllGlobals()
+  }
 })

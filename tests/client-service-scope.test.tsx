@@ -12,9 +12,10 @@ describe('alpha.1 client service scope', () => {
     const disposeRemote = vi.fn(async () => undefined)
     root.provide('remote', { $mount: vi.fn(async () => disposeRemote) })
     root.provide('sessions', {
-      list: { getSnapshot: () => ({ current: undefined }), subscribe: () => () => {} },
+      list: { getSnapshot: () => ({ byId: {} }), subscribe: () => () => {} },
       binding: () => undefined,
     })
+    root.provide('uiWorkspace', { openSession: vi.fn() } as never)
     root.provide('conversation', { input: { for: () => ({ beginCommand: () => false }) } })
     root.provide('uiConversation', { events: { register: vi.fn(() => () => undefined) } })
     root.provide('slots', {

@@ -12,7 +12,7 @@ import { TYPERT_REMOTE } from './remote/typert.ts'
 export * from './public/client-api.ts'
 export { AnnotationCoreClientService } from './client/service.tsx'
 
-export const inject: readonly string[] = ['remote', 'slots', 'sessions', 'conversation', 'uiConversation']
+export const inject: readonly string[] = ['remote', 'slots', 'sessions', 'conversation', 'uiConversation', 'uiWorkspace']
 
 export async function apply(ctx: Context, config?: ClientConfig): Promise<void> {
   const normalized = normalizeClientConfig(config)

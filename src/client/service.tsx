@@ -1,3 +1,4 @@
+import { currentMainSession, openMainSession, type MainSessionNavigation } from '../client-session.ts'
 import { ReferenceHighlights, ReferenceHighlightStore, referenceRange } from './reference-highlights.tsx'
 import { ReferenceBadges } from './reference-badges.tsx'
 import { SelectionActions, type SelectionAction } from './selection-actions.ts'
@@ -155,15 +156,15 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
 
   private async openTargetComposer(target:string) {
     const sessions = this.ctx.get('sessions') as unknown as {
-      refresh(): Promise<void>; open(id: string): void; list: { getSnapshot(): { current?: string } }
+      refresh(): Promise<void>; list: MainSessionNavigation['sessions']['list']
     }
     this.lifetime.signal.throwIfAborted()
     await sessions.refresh()
     this.lifetime.signal.throwIfAborted()
-    sessions.open(target)
+    await openMainSession(this.ctx as unknown as MainSessionNavigation, target, this.lifetime.signal)
     const assertTarget = () => {
       this.lifetime.signal.throwIfAborted()
-      if (sessions.list.getSnapshot().current !== target)
+      if (currentMainSession(sessions.list.getSnapshot()) !== target)
         throw new Error('目标页面已切换，引用尚未加入，请重试')
     }
     const deadline = Date.now() + 15000
@@ -210,11 +211,11 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
 
   async openDshSource(item: ReferenceItem): Promise<void> {
     if (item.sourceType !== 'dsh-message') return
-    const sessions = this.ctx.get('sessions') as unknown as { open(id: string): void; list: { getSnapshot(): { current?: string } } }
-    if (sessions.list.getSnapshot().current !== item.locator.sessionId) sessions.open(item.locator.sessionId)
+    const sessions = this.ctx.get('sessions') as unknown as MainSessionNavigation['sessions']
+    if (currentMainSession(sessions.list.getSnapshot()) !== item.locator.sessionId) await openMainSession(this.ctx as unknown as MainSessionNavigation, item.locator.sessionId, this.lifetime.signal)
     const deadline = Date.now() + 3000
     while (!this.lifetime.signal.aborted && Date.now() < deadline) {
-      if (sessions.list.getSnapshot().current !== item.locator.sessionId) throw new Error('会话已切换，已取消定位')
+      if (currentMainSession(sessions.list.getSnapshot()) !== item.locator.sessionId) throw new Error('会话已切换，已取消定位')
       const key = this.resolveDshAnchor(item)
       const element = document.querySelector<HTMLElement>(`[data-chat-anchor-key="${CSS.escape(key)}"]`)
       if (element) {
@@ -381,10 +382,10 @@ export class AnnotationCoreClientService extends Service implements AnnotationCo
       const set = this.dialogSet()
       return { set, sessionId: set.sessionId, remote: this.remote(set.sessionId) }
     }
-    const sessions = this.ctx.get('sessions') as unknown as { list: { getSnapshot(): { current?: string }; subscribe(listener: () => void): () => void } }
-    return <><ReferenceHighlights store={this.highlights} currentSession={() => sessions.list.getSnapshot().current}
+    const sessions = this.ctx.get('sessions') as unknown as MainSessionNavigation['sessions']
+    return <><ReferenceHighlights store={this.highlights} currentSession={() => currentMainSession(sessions.list.getSnapshot())}
       subscribeSession={listener => sessions.list.subscribe(listener)} resolveAnchor={item => this.resolveDshAnchor(item)} /><ReferenceBadges
-      store={this.highlights} currentSession={() => sessions.list.getSnapshot().current}
+      store={this.highlights} currentSession={() => currentMainSession(sessions.list.getSnapshot())}
       subscribeSession={listener => sessions.list.subscribe(listener)} resolveAnchor={item => this.resolveDshAnchor(item)}
       openReference={(set, referenceId) => this.dialog.open(set, referenceId)} /><ReferenceDialog
       controller={this.dialog} sources={this.sources}

@@ -33,7 +33,8 @@ describe('workspace selection and real target composer navigation',()=>{
     let core:AnnotationCoreClientService
     const open=vi.fn((id:string)=>{current=id;core.registerNativeComposer(id)})
     const refresh=vi.fn(async()=>{})
-    ctx.provide('sessions',{refresh,open,list:{getSnapshot:()=>({current,byId:{target:{title:'目标会话名称',displayTitle:'目标会话名称'},workspace:{title:'不能覆盖工作区'}}})}} as never)
+    ctx.provide('uiWorkspace',{openSession:open} as never)
+    ctx.provide('sessions',{refresh,list:{subscribe:()=>()=>{},getSnapshot:()=>({byId:{[current]:{retainedBy:{mainView:1}},target:{retainedBy:{mainView:current==='target'?1:0},title:'目标会话名称',displayTitle:'目标会话名称'},workspace:{title:'不能覆盖工作区'}}})}} as never)
     core=new AnnotationCoreClientService(ctx,{profileId:'web'})
     const capture={sourceSessionId:'source',anchorId:'reply',role:'assistant' as const,occurrence:0,selectedText:'quoted'}
     const saved={sourceType:'dsh-message',selectedText:'quoted',locator:{upstream:{kind:'fixed-upstream',referenceId:'one-reference'}}}

@@ -1,3 +1,4 @@
+import { currentMainSession, type MainSessionSnapshot } from '../client-session.ts'
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import type { SubmitAttachment, CommandClaim } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 
@@ -66,7 +67,7 @@ function AnnotationNodeView(props: AnnotationNodeProps) {
 
 interface AlphaClientContext {
   readonly sessions: {
-    readonly list: { getSnapshot(): { readonly current?: string } }
+    readonly list: { getSnapshot(): MainSessionSnapshot }
     binding(id: string): { readonly ctx: { get(name: string): unknown } } | undefined
   }
   readonly conversation: { readonly input: { for(ctx: unknown): NativeInput } }
@@ -105,7 +106,7 @@ function installFragmentCapture(ctx: Context): void {
       const href = anchor.getAttribute('href')
       if (href === null || !href.startsWith('#dsh-annotation-')) return
       const sessions = clientSessions(ctx)
-      const sessionId = sessions.list.getSnapshot().current
+      const sessionId = currentMainSession(sessions.list.getSnapshot())
       if (sessionId === undefined) return
       const binding = sessions.binding(sessionId)
       const core = binding?.ctx.get('annotationCore') as AnnotationCoreClientService | undefined

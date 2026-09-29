@@ -1,3 +1,4 @@
+import { currentMainSession, type MainSessionNavigation } from '../client-session.ts'
 import { Component, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Context } from '../context-types.ts'
@@ -86,10 +87,10 @@ function SelectionToolbarInner({ core, controller }: { core: AnnotationCoreClien
 
 export function applyNativeSelection(ctx: Context, core: AnnotationCoreClientService): void {
   ctx.effect(() => {
-    const sessions = ctx.sessions as unknown as { list: { getSnapshot(): { current?: string }; subscribe(notify: () => void): () => void } }
-    const controller = createSelectionController(() => sessions.list.getSnapshot().current ?? '')
-    let current = sessions.list.getSnapshot().current
-    const stopSession = sessions.list.subscribe(() => { const next = sessions.list.getSnapshot().current; if (next !== current) { current = next; controller.clear() } })
+    const sessions = ctx.sessions as unknown as MainSessionNavigation['sessions']
+    const controller = createSelectionController(() => currentMainSession(sessions.list.getSnapshot()) ?? '')
+    let current = currentMainSession(sessions.list.getSnapshot())
+    const stopSession = sessions.list.subscribe(() => { const next = currentMainSession(sessions.list.getSnapshot()); if (next !== current) { current = next; controller.clear() } })
     const host = document.createElement('div')
     host.dataset.dshCoreSelection = ''
     document.body.appendChild(host)

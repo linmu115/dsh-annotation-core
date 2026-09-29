@@ -23,9 +23,9 @@ function fixture() {
   const ctx = new Context(), store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
   stores.push(store)
   let current = 'source', core: AnnotationCoreClientService
-  const sessions = { refresh: vi.fn(async () => {}), open: vi.fn((id: string) => {
-    current = id; core.registerNativeComposer(id)
-  }), list: { getSnapshot: () => ({ current }) } }
+  const workspace = { openSession: vi.fn((id: string) => { current = id; core.registerNativeComposer(id) }) }
+  const sessions = { refresh: vi.fn(async () => {}), list: { getSnapshot: () => ({ byId: { [current]: { retainedBy: { mainView: 1 } } } }), subscribe: () => () => {} } }
+  ctx.provide('uiWorkspace', workspace as never)
   ctx.provide('sessions', sessions as never)
   core = new AnnotationCoreClientService(ctx, { profileId: 'web' })
   const remote = {
@@ -40,7 +40,7 @@ function fixture() {
   vi.spyOn(core as any, 'remote').mockImplementation((id: unknown) => {
     expect(id).toBe('target'); return remote
   })
-  return { core, remote, store, sessions, switchAway: () => { current = 'other' } }
+  return { core, remote, store, sessions, workspace, switchAway: () => { current = 'other' } }
 }
 
 describe('graph reference actions', () => {
@@ -113,8 +113,8 @@ describe('graph reference actions', () => {
   it('waits for the real target composer before capturing any context', async () => {
     vi.useFakeTimers()
     const f = fixture()
-    f.sessions.open.mockImplementation(() => {})
-    f.sessions.list.getSnapshot = () => ({ current: 'target' })
+    f.workspace.openSession.mockImplementation(() => {})
+    f.sessions.list.getSnapshot = () => ({ byId: { target: { retainedBy: { mainView: 1 } } } })
     const task = f.core.addCrossSessionReference('target', capture)
     await vi.advanceTimersByTimeAsync(100)
     expect(f.remote.captureUpstream).not.toHaveBeenCalled()
