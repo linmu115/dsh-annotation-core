@@ -58,8 +58,11 @@ describe('native material release on the actual DSH Session surface', () => {
     const replacement = f.session.snapshotEvents().at(-1)!
     expect(replacement.type).toBe('tool/result')
     if (replacement.type !== 'tool/result') throw new Error('Unexpected event')
+    expect(original.data.message.role).toBe('tool')
+    expect(replacement.data.message.role).toBe('tool')
+    expect(replacement.data.message.isError).toBe(false)
     expect(replacement.data.message.source).toEqual(original.data.message.source)
-    expect(replacement.data.message.content[0].toolCallId).toBe('source-read-call')
+    expect(replacement.data.message.toolCallId).toBe('source-read-call')
     expect(replacement.sourceEventSeqs).toContain(original.seq)
     expect(f.receipts[0]).toMatchObject({ state: 'applied', operationId: 'release-1', surfaceEventSeqs: [replacement.seq] })
     expect(f.receipts[0].releasedBytes).toBeGreaterThan(0)
@@ -165,7 +168,7 @@ describe('native material release on the actual DSH Session surface', () => {
     await f.controller.synchronize(f.session, 'execution', signal())
     const item = [...f.materials.values()][0]!
     const replacement = f.session.append('tool/result', { ...original.data,
-      message: { ...original.data.message, content: [{ ...original.data.message.content[0], content: [{ type: 'text', text: '[external compaction summary]' }] }] } },
+      message: { ...original.data.message, content: [{ type: 'text', text: '[external compaction summary]' }] } },
     { surfaceOp: { op: 'replace', startSeq: original.seq, endSeq: original.seq }, sourceEventSeqs: [original.seq] })
     f.plans.push({ operationId: 'externally-compacted', materialIds: [item.materialId], state: 'pending-next-step' })
     await f.controller.synchronize(f.session, 'execution', signal())
@@ -201,7 +204,7 @@ describe('native material release on the actual DSH Session surface', () => {
     expect(f.receipts[1]!.releasedBytes).toBe(0)
     const last = f.session.snapshotEvents().at(-1)!
     if (last.type !== 'tool/result') throw new Error('Unexpected event')
-    const content = last.data.message.content[0].content[0]!
+    const content = last.data.message.content[0]!
     if (content.type !== 'text') throw new Error('Unexpected content')
     expect(JSON.parse(content.text).nativeContextRelease.operationIds).toEqual(['overlap-1', 'overlap-2'])
     expect(JSON.stringify(f.session.deriveMessages())).not.toContain('upstream secret content')

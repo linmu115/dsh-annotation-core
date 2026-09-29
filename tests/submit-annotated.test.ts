@@ -5,7 +5,6 @@ import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type {
   ImageAttachmentLimits,
   ImageAttachmentRef,
-  ImageRequestPolicy,
   RequestImageAttachment,
   SaveImageAttachment,
   StoredImageAttachment,
@@ -54,7 +53,7 @@ class TestAttachments extends AttachmentStore {
     }
   }
   async readImage(): Promise<StoredImageAttachment> { throw new Error('unused') }
-  async readImageRequest(_ref: ImageAttachmentRef, _policy: ImageRequestPolicy): Promise<RequestImageAttachment> { throw new Error('unused') }
+  async readImageRequest(_ref: ImageAttachmentRef, _policy: unknown): Promise<RequestImageAttachment> { throw new Error('unused') }
 }
 
 function deferred() {

@@ -58,11 +58,11 @@ function annotationParts(session: Session, event: SessionEvent): SurfacePart[] {
 }
 function partsFor(session: Session, event: SessionEvent): SurfacePart[] {
   if (event.type === 'user/message') return annotationParts(session, event)
-  if (event.type !== 'tool/result' || event.data.message.content[0].isError) return []
+  if (event.type !== 'tool/result' || event.data.message.isError) return []
   const meta = (event.data as Data).presentationMeta?.nativeContext ?? (event.data as Data).meta?.nativeContext
   if (meta?.protocolVersion !== 1 || meta.plugin !== plugin || !['read', 'search', 'requests'].includes(meta.kind)
     || !Array.isArray(meta.referenceIds) || !Array.isArray(meta.ranges)) return []
-  const content = event.data.message.content[0].content
+  const content = event.data.message.content
   if (content.length !== 1 || content[0]?.type !== 'text') return []
   let value: Data
   try { value = JSON.parse(content[0].text) } catch { return [] }
@@ -79,7 +79,7 @@ function evidence(event: SessionEvent): ReleaseEvidence | undefined {
   if (typeof event.surfaceOp !== 'object' || event.surfaceOp.op !== 'replace') return undefined
   let value: Data | undefined
   if (event.type === 'tool/result') {
-    const content = event.data.message.content[0].content
+    const content = event.data.message.content
     if (content.length !== 1 || content[0]?.type !== 'text') return undefined
     try { value = JSON.parse(content[0].text)?.nativeContextRelease } catch { return undefined }
   } else if (event.type === 'user/message' && event.data.source.kind === 'dsh-native-context-release') value = event.data.source
@@ -119,8 +119,7 @@ function replaceParts(session: Session, original: SessionEvent, current: Session
   const options = { surfaceOp: { op: 'replace' as const, startSeq: current.seq, endSeq: current.seq },
     sourceEventSeqs: [...new Set([current.seq, original.seq])] }
   if (original.type === 'tool/result' && current.type === 'tool/result') {
-    const result = current.data.message.content[0]
-    const originalContent = original.data.message.content[0].content
+    const originalContent = original.data.message.content
     if (originalContent.length !== 1 || originalContent[0]?.type !== 'text') throw new Error('Unsupported tool material envelope')
     const value = JSON.parse(originalContent[0].text) as Data
     const allParts = partsFor(session, original)
@@ -133,8 +132,7 @@ function replaceParts(session: Session, original: SessionEvent, current: Session
         'role', 'offset', 'textOffset', 'complete', 'ordinal', 'createdAt', 'turnId', 'turnBoundaryEventId', 'relation', 'state', 'associationState'].includes(key)))
       return { ...retained, text: marker(id), released: true }
     }) } : { message: 'Source positions retained; read again only when needed.' }
-    const message = freezeMessage<ToolResultMessage>({ ...current.data.message, content: [{ ...result,
-      content: [{ type: 'text' as const, text: canonicalJson({ ...revised, nativeContextRelease: proof }) }] }] })
+    const message = freezeMessage<ToolResultMessage>({ ...current.data.message, content: [{ type: 'text' as const, text: canonicalJson({ ...revised, nativeContextRelease: proof }) }] })
     // DSH requires every tool-result field except content (including meta) to remain byte-for-byte equivalent.
     return session.append('tool/result', { ...current.data, message }, options)
   }

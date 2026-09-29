@@ -13,6 +13,8 @@ import {
   serializePreparedReferenceSet,
 } from '../src/protocol/index.ts'
 
+declare module '@deepseek-ai/dsh-llm' { interface MessageSourceMap { plugin: { kind: 'plugin'; plugin: string; form: string; summary: string } } }
+
 const digest = 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 
 function preparedSet(setId: string, referenceId: string, text: string) {

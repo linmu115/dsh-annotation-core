@@ -85,7 +85,7 @@ describe('native context DSH tool boundaries', () => {
     f.ctx.provide('sessionNativeContext' as never, f.host)
     registerNativeContextTools(f.ctx, f.budgets)
     await vi.waitFor(() => expect(f.ctx.get('sessionNativeContext' as never)).toBe(f.host))
-    f.ctx.emit('agent/created', { agent })
+    f.ctx.emit('agent/created', { source: 'startup', agent })
     await vi.waitFor(() => expect(registered.size).toBe(9))
     f.request.mockRejectedValue(new Error('Adapter 已停用'))
     if (kind === 'retained') {
@@ -110,9 +110,9 @@ describe('native context DSH tool boundaries', () => {
     const nativeAgent = { ...f.agent, ctx: nativeCtx } as Agent
     registerNativeContextTools(f.ctx, f.budgets)
     await vi.waitFor(() => expect(f.ctx.get('sessionNativeContext' as never)).toBe(f.host))
-    f.ctx.emit('agent/created', { agent: nativeAgent })
+    f.ctx.emit('agent/created', { source: 'startup', agent: nativeAgent })
     await vi.waitFor(() => expect(scopedRegister).toHaveBeenCalledTimes(9))
-    f.ctx.emit('agent/created', { agent: { ...nativeAgent, options: { provider: 'codex' } } as Agent })
+    f.ctx.emit('agent/created', { source: 'startup', agent: { ...nativeAgent, options: { provider: 'codex' } } as Agent })
     expect(scopedRegister).toHaveBeenCalledTimes(9)
     expect(globalRegister).not.toHaveBeenCalled()
     f.ctx.emit('agent/disposed', { agent: nativeAgent })

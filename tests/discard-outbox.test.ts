@@ -208,9 +208,9 @@ describe('local-only claim rollback', () => {
   it('validates the additive option as a boolean at the remote boundary', async () => {
     const { TYPERT_REMOTE } = await import('../src/remote/typert.ts')
     const descriptor = TYPERT_REMOTE.descriptors.find((item) => item.method === 'discardPendingOperation')!
-    const codec = descriptor.parameters.find((item) => item.name === 'request')!.codec as unknown as { schema: { safeParse(value: unknown): { success: boolean } } }
-    expect(codec.schema.safeParse({ expectedRevision: 1, operationId: 'operation-1', notifySource: false }).success).toBe(true)
-    expect(codec.schema.safeParse({ expectedRevision: 1, operationId: 'operation-1', notifySource: 'false' }).success).toBe(false)
+    const codec = descriptor.parameters.find((item) => item.name === 'request')!.codec as unknown as { create(): { safeParse(value: unknown): { success: boolean } } }
+    expect(codec.create().safeParse({ expectedRevision: 1, operationId: 'operation-1', notifySource: false }).success).toBe(true)
+    expect(codec.create().safeParse({ expectedRevision: 1, operationId: 'operation-1', notifySource: 'false' }).success).toBe(false)
   })
 })
 

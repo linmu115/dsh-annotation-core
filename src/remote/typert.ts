@@ -4,10 +4,10 @@ import { z } from 'zod'
 
 import { ReferenceSourceSchema, Sha256DigestSchema,DshMessageCaptureSchema } from '../protocol/index.ts'
 
-const stringCodec = (symbol: string) => ({ mode: 'strict' as const, typeSymbol: symbol, schema: z.string().min(1) })
-const integerCodec = (symbol: string) => ({ mode: 'strict' as const, typeSymbol: symbol, schema: z.number().int().nonnegative() })
-const unknownCodec = (symbol: string) => ({ mode: 'strict' as const, typeSymbol: symbol, schema: z.unknown() })
-const voidCodec = (symbol: string) => ({ mode: 'strict' as const, typeSymbol: symbol, schema: z.undefined() })
+const stringCodec = (symbol: string) => ({ mode: 'strict' as const, typeSymbol: symbol, create: () => z.string().min(1) })
+const integerCodec = (symbol: string) => ({ mode: 'strict' as const, typeSymbol: symbol, create: () => z.number().int().nonnegative() })
+const unknownCodec = (symbol: string) => ({ mode: 'strict' as const, typeSymbol: symbol, create: () => z.unknown() })
+const voidCodec = (symbol: string) => ({ mode: 'strict' as const, typeSymbol: symbol, create: () => z.undefined() })
 
 const AgentParameter = {
   name: 'agent',
@@ -20,7 +20,7 @@ const AgentParameter = {
 const Scope = { context: 'agent', wire: 'agentId' }
 
 function jsonParameter(name: string, schema: z.ZodType, typeSymbol = `dsh-annotation-core#${name}`) {
-  return { name, wire: name, source: 'json' as const, codec: { mode: 'strict' as const, typeSymbol, schema } }
+  return { name, wire: name, source: 'json' as const, codec: { mode: 'strict' as const, typeSymbol, create: () => schema } }
 }
 
 const RevisionSchema = z.number().int().nonnegative()
@@ -116,7 +116,7 @@ export const ANNOTATION_CORE_REMOTE_DESCRIPTORS: readonly InvocationDescriptor[]
   descriptor('describeGraphReference', [jsonParameter('referenceId', z.string().min(1).max(256), 'string')], unknownCodec('dsh-annotation-core#GraphReferenceDescription')),
   descriptor('restoreGraphReference', [jsonParameter('referenceId', z.string().min(1).max(256), 'string')], voidCodec('void')),
   descriptor('resolveReferenceLink', [jsonParameter('referenceId', z.string().min(1).max(256), 'string')],
-    { mode: 'strict', typeSymbol: 'dsh-annotation-core#ReferenceLinkSummary', schema: z.object({
+    { mode: 'strict', typeSymbol: 'dsh-annotation-core#ReferenceLinkSummary', create: () => z.object({
       setId: z.string().min(1), referenceId: z.string().min(1).max(256),
       state: z.enum(['pending', 'committing', 'failed', 'sent', 'deleted']),
     }).strict().nullable() }),

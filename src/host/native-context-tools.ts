@@ -177,7 +177,7 @@ export function registerNativeContextTools(ctx: Context, budgets: UpstreamToolBu
       const disposers = tools.map(tool => agent.ctx.tools.register(tool))
       mounted.set(agent, disposers)
     }
-    capability.on('agent/created', ({ agent }) => mount(agent))
+    capability.on('agent/created', ({ agent }) => { mount(agent); return undefined })
     capability.on('agent/disposed', ({ agent }) => unmount(agent))
     capability.on('agent/pre-step', async (payload, next) => {
       const decision = await next()

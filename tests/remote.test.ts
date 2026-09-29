@@ -37,7 +37,7 @@ async function loadGatewayClient(): Promise<Record<string, unknown>> {
       },
     },
   }
-  new Function('window', source)(window)
+  new Function('window', 'document', 'WebSocket', source)(window, { baseURI: 'http://localhost/' }, class { addEventListener() {} removeEventListener() {} close() {} })
   if (loaded === undefined) throw new Error('Gateway client bundle did not register')
   return loaded
 }

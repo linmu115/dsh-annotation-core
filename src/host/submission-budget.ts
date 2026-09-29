@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
-import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { createSystemMessage, type GenerateOptions, type PreparedLlmCall, type UserMessage, type LlmResolvedModelInfo, type Message } from '@deepseek-ai/dsh-llm'
+import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { createSystemMessage, type ImageBlock, type GenerateOptions, type PreparedLlmCall, type UserMessage, type LlmResolvedModelInfo, type Message } from '@deepseek-ai/dsh-llm'
 import { renderPrompt, renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt'
 import { estimateUtf8TokensFromBytes, type ReferenceBudgetOptions } from '../domain/budget.ts'
 
@@ -56,7 +56,7 @@ export async function submissionReferenceBudget(ctx: Context, agent: Agent, mess
   if (!prompt || !llm) throw new Error('当前系统提示与工具额度尚不可确认，已保留引用草稿')
   const assembly = await prompt.assemble(assembleContextFor(agent, signal))
   signal?.throwIfAborted()
-  const images: ImageAttachmentRef[] = []
+  const images: ImageBlock[] = []
   // Transform every nested occurrence, including tool-result attachments. Binary sizes and URLs
   // are not image prices; files contribute the exact read-on-demand handle used by this provider.
   function projectBlock(value: unknown): unknown {
@@ -64,7 +64,7 @@ export async function submissionReferenceBudget(ctx: Context, agent: Agent, mess
     const record = value as Record<string, unknown>
     if (record.type === 'image') {
       if (!record.attachment) throw new Error('图片缺少可计价的持久附件，已保留引用草稿')
-      images.push(record.attachment as ImageAttachmentRef)
+      images.push(value as ImageBlock)
       return { type: 'image' }
     }
     if (record.type === 'file') {
@@ -87,7 +87,7 @@ export async function submissionReferenceBudget(ctx: Context, agent: Agent, mess
     // The pending message identifies the protected boundary. The context owner
     // compacts only persisted history; this draft is neither persisted nor summarized.
     const prepared = await llm.prepareCall({ ...selection, ...(agent.options.maxTokens === undefined ? {} : { maxTokens: agent.options.maxTokens }) }, signal) as ManagedCall
-    const systems = [createSystemMessage(renderPrompt(assembly), 'annotation-core-budget')]
+    const systems = [createSystemMessage(renderPrompt(assembly))]
     const request: GenerateOptions = { ...prepared.config, messages: [...systems, ...history.filter(value => value.role !== 'system'), message], tools: assembly.tools, ...(signal === undefined ? {} : { signal }) }
     const projection = await selector(request, prepared)
     history = projection.messages.filter(value => value.role !== 'system')
@@ -105,7 +105,7 @@ export async function submissionReferenceBudget(ctx: Context, agent: Agent, mess
     signal?.throwIfAborted()
   }
   const messages = [...history, message].map(value =>
-    ({ role: value.role, content: value.content.map(projectBlock) })) as Message[]
+    ({ role: value.role, ...(value.role === 'tool' ? { toolCallId: value.toolCallId, isError: value.isError } : {}), content: value.content.map(projectBlock) })) as unknown as Message[]
   const system = { system: renderPrompt(assembly), context: renderContextSnapshot(assembly), tools: assembly.tools }
   const request = { messages, ...system }
   const header = agent.session.requestHeader()

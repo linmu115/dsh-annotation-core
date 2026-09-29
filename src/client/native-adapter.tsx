@@ -42,6 +42,7 @@ function NativeAnnotationRail(props: NativeRailProps) {
     if (snapshot.pendingCount === 0 || snapshot.transport !== 'native-command-claim' || props.input.phase !== 'plain') return
     const claim: CommandClaim & { readonly allowEmpty: true } = {
       allowEmpty: true,
+      name: '引用',
       token: '',
       attachments: true,
       submit: (text: string, _actx: unknown, attachments: readonly SubmitAttachment[]) => nativeClaims.submit(props.nativeInput, String(props.sessionId), text, attachments),

@@ -240,7 +240,7 @@ export class StartupSubmissionReconciler {
 
   start(): void {
     if (this.tasks.closed || this.unregister) return
-    this.unregister = this.ctx.on('agent/created', ({ agent }) => { void this.reconcile(agent).catch(() => undefined) })
+    this.unregister = this.ctx.on('agent/created', ({ agent }) => { void this.reconcile(agent).catch(() => undefined); return undefined })
     for (const agent of this.ctx.agents.list()) void this.reconcile(agent).catch(() => undefined)
   }
 
