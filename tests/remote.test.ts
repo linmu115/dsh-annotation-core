@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { Context } from '@deepseek-ai/cordis'
 import * as cordis from '@deepseek-ai/cordis'
+import { Peer } from '@deepseek-ai/dsh-client-connection'
 import { TypertGatewayService } from '@deepseek-ai/dsh-api-gateway'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { Storage } from '@deepseek-ai/dsh-storage'
@@ -25,7 +26,9 @@ interface ClientBundleDefinition {
 }
 
 async function loadGatewayClient(): Promise<Record<string, unknown>> {
-  const source = await readFile(join(process.cwd(), 'node_modules', '@deepseek-ai', 'dsh-api-gateway', 'lib', 'client.js'), 'utf8')
+  const packageRoot = join(process.cwd(), 'node_modules', '@deepseek-ai', 'dsh-api-gateway')
+  const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'))
+  const source = await readFile(join(packageRoot, manifest.exports['./client'].browser), 'utf8')
   let loaded: Record<string, unknown> | undefined
   const window = {
     __ModuleLoader__: {
@@ -88,7 +91,7 @@ describe('annotation core Typert boundary', () => {
     const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
     const gateway = mountAgentBoundary(ctx, store)
     const abort = new AbortController()
-    const stream = await gateway.stream({ namespace: 'annotationCore', method: 'watchPending',
+    const stream = await gateway.stream({ peer: new Peer(ctx.root, { principal: { kind: 'owner' } }), namespace: 'annotationCore', method: 'watchPending',
       args: { agentId: 'session-1' }, signal: abort.signal })
     const iterator = stream[Symbol.asyncIterator]()
     expect(await iterator.next()).toMatchObject({ value: { revision: 0, pending: null } })
@@ -109,7 +112,7 @@ describe('annotation core Typert boundary', () => {
     const store = new AnnotationStore(AnnotationStore.memoryTable(), { profileId: 'web' })
     const gateway = mountAgentBoundary(ctx, store)
 
-    const allowed = await gateway.invoke({
+    const allowed = await gateway.invoke({ peer: new Peer(ctx.root, { principal: { kind: 'owner' } }),
       namespace: 'annotationCore',
       method: 'readPending',
       args: { agentId: 'session-1' },
@@ -117,7 +120,7 @@ describe('annotation core Typert boundary', () => {
     })
     expect(allowed).toMatchObject({ revision: 0, pending: null })
 
-    await expect(gateway.invoke({
+    await expect(gateway.invoke({ peer: new Peer(ctx.root, { principal: { kind: 'owner' } }),
       namespace: 'annotationCore',
       method: 'readPending',
       args: { agentId: 'not-live' },
@@ -125,7 +128,7 @@ describe('annotation core Typert boundary', () => {
     })).rejects.toThrow()
 
     const abort = new AbortController()
-    const waiting = gateway.invoke({
+    const waiting = gateway.invoke({ peer: new Peer(ctx.root, { principal: { kind: 'owner' } }),
       namespace: 'annotationCore',
       method: 'waitRevision',
       args: { agentId: 'session-1', afterRevision: 0 },
@@ -144,7 +147,7 @@ describe('annotation core Typert boundary', () => {
     await store.addReference('session-1', { expectedRevision: 0, operationId: 'graph', setId: 'set', referenceId: 'ref', createdAt: 1,
       source: { sourceType: 'dsh-message', selectedText: 'private fixture text', locator: { profileId: 'web', sessionId: 'source',
         anchorId: 'reply', role: 'assistant', occurrence: 0, selectedTextHash: selectedTextHash('private fixture text') } } })
-    const invoke = (method: string, args: Record<string, unknown>) => gateway.invoke({ namespace: 'annotationCore', method,
+    const invoke = (method: string, args: Record<string, unknown>) => gateway.invoke({ peer: new Peer(ctx.root, { principal: { kind: 'owner' } }), namespace: 'annotationCore', method,
       args: { agentId: 'session-1', ...args }, signal: new AbortController().signal })
     expect(await invoke('resolveReferenceLink', { referenceId: 'ref' })).toEqual({ setId: 'set', referenceId: 'ref', state: 'pending' })
     expect(await invoke('deleteReferenceLink', { request: { expectedRevision: 1, setId: 'set', referenceId: 'ref', deletedAt: 2 } }))
@@ -176,7 +179,7 @@ describe('annotation core Typert boundary', () => {
         async call(_route: string, endpoint: string, body: { args: Record<string, unknown> }, signal: AbortSignal) {
           const separator = endpoint.indexOf('/')
           try {
-            const value = await gateway.invoke({
+            const value = await gateway.invoke({ peer: new Peer(hostCtx.root, { principal: { kind: 'owner' } }),
               namespace: endpoint.slice(0, separator),
               method: endpoint.slice(separator + 1),
               args: body.args,

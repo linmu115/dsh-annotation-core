@@ -5,3 +5,8 @@ coverage/
 .tmp/
 *.tgz
 .artifacts/
+
+# Local host checkout and verification artifacts
+/.dsh-host/
+/.artifacts/
+/*-dsh02-ui*.log
