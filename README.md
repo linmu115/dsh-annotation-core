@@ -1,3 +1,5 @@
+> RC3 Windows/macOS candidate: [0.3.12-dsh021rc3.1](docs/RELEASE-RC3.md).
+
 # Annotation Core
 
 > 当前运行环境：**DSH 0.1.5-rc.2 实例 / web profile**（0.1.5rc2）。其他 DSH 版本尚未验收。

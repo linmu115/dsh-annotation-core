@@ -10,3 +10,5 @@ coverage/
 /.dsh-host/
 /.artifacts/
 /*-dsh02-ui*.log
+
+.dsh-host

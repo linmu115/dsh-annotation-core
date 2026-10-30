@@ -2,7 +2,7 @@ import { access, lstat, readFile, realpath, symlink } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const expectedVersion = '0.2.1-rc.2';
+const expectedVersion = '0.2.1-rc.3';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const input = process.argv[2] || process.env.DSH_HOST_SOURCE;
 if (!input) throw new Error('Set DSH_HOST_SOURCE or pass the built DSH source directory as the first argument.');
